@@ -1,6 +1,6 @@
 // Paso Firme: caché para instalar y abrir sin conexión, y cabeceras de aislamiento
 // (necesarias para que el medidor de profundidad use varios núcleos del móvil).
-const CACHE = 'paso-firme-v4';
+const CACHE = 'paso-firme-v5';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'tf.min.js', 'coco-ssd.min.js'];
 
 self.addEventListener('install', e => {
@@ -28,7 +28,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
-    fetch(req).then(res => {
+    // 'no-cache' obliga a comprobar con el servidor: así cada apertura trae la última versión.
+    fetch(req.url, { cache: 'no-cache' }).then(res => {
       if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {}); }
       return isolate(res);
     }).catch(() => caches.match(req).then(r => r ? isolate(r) : Response.error()))
