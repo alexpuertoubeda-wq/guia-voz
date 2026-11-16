@@ -219,12 +219,13 @@ function parte1() {
       return Math.round(s / 16);
     });
     const a = L.medirCalidad(nitida), b = L.medirCalidad(movida);
-    assert.ok(a.nitidezMinima > 1000, 'nítida: ' + a.nitidezMinima);
+    // La nítida debe quedar muy por encima del umbral de imagen movida (al menos 5 veces).
+    assert.ok(a.nitidezMinima > L.UMBRALES.nitidezMovida * 5, 'nítida: ' + a.nitidezMinima);
     assert.ok(b.nitidezMinima < L.UMBRALES.nitidezMovida, 'movida: ' + b.nitidezMinima);
     assert.ok(b.nitidez > 500, 'el laplaciano sigue alto en la movida: ' + b.nitidez);
     // Texto solo en una esquina: la nitidez la da la zona con texto, no el margen vacío.
     const esquina = gris(240, 180, (x, y) => ((x < 120 && y < 90 && x % 8 < 3 && y % 12 < 5) ? 20 : 235));
-    assert.ok(L.medirCalidad(esquina).nitidezMinima > 1000);
+    assert.ok(L.medirCalidad(esquina).nitidezMinima > L.UMBRALES.nitidezMovida * 5);
     assert.strictEqual(L.nitidezDireccional(L.aGrises(gris(2, 2, () => 1))), 0);
   });
   prueba('textoCortado: líneas que tocan un borde lateral', () => {
