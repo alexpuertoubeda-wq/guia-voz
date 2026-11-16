@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paso Firme</title>
+<meta name="description" content="Guía por voz para personas ciegas: avisa de obstáculos con la cámara y dice dónde estás.">
+<meta name="theme-color" content="#0b1220">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0b1220; color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #cam, #ov { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #cam { opacity: .55; }
+  main { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  button { flex: 1; border: 0; margin: 0; font: inherit; font-size: 2.2rem; font-weight: 700;
+    color: #fff; background: rgba(11,18,32,.45); touch-action: manipulation; }
+  #btnGuide { border-bottom: 4px solid #ffd60a; }
+  #btnGuide[aria-pressed="true"] { background: rgba(190,30,45,.45); }
+  button:active { background: rgba(255,214,10,.35); }
+  button:focus-visible { outline: 6px solid #ffd60a; outline-offset: -6px; }
+  #status { position: fixed; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+    margin: 0; padding: .6rem 1rem; text-align: center; font-size: 1.15rem;
+    background: rgba(0,0,0,.75); pointer-events: none; min-height: 2.6rem; }
+</style>
+</head>
+<body>
+<video id="cam" playsinline muted aria-hidden="true"></video>
+<canvas id="ov" aria-hidden="true"></canvas>
+<main>
+  <button id="btnGuide" aria-pressed="false">Iniciar guía</button>
+  <button id="btnTalk">Dar una orden por voz</button>
+</main>
+<p id="status" aria-hidden="true">Paso Firme. Arriba: iniciar guía. Abajo: dar una orden.</p>
+
+<script src="tf.min.js"></script>
+<script src="coco-ssd.min.js"></script>
+<script>
+'use strict';
+
+// ---------- Datos ----------
+// Objetos que se anuncian: nombre en español y altura real aproximada en metros,
+// usada para estimar la distancia a partir del tamaño en la imagen.
+const OBJ = {
+  'person': ['persona', 1.7], 'bicycle': ['bicicleta', 1.0], 'car': ['coche', 1.5],
+  'motorcycle': ['moto', 1.1], 'bus': ['autobús', 3.0], 'truck': ['camión', 3.0],
+  'train': ['tren', 3.5], 'traffic light': ['semáforo', 0.9],
+  'fire hydrant': ['boca de riego', 0.7], 'stop sign': ['señal de stop', 0.75],
+  'parking meter': ['parquímetro', 1.3], 'bench': ['banco', 0.85], 'dog': ['perro', 0.5],
+  'cat': ['gato', 0.3], 'chair': ['silla', 0.9], 'couch': ['sofá', 0.85],
+  'potted plant': ['maceta', 0.6], 'bed': ['cama', 0.6], 'dining table': ['mesa', 0.75],
+  'toilet': ['inodoro', 0.75], 'tv': ['televisor', 0.6], 'refrigerator': ['frigorífico', 1.7],
+  'suitcase': ['maleta', 0.65], 'backpack': ['mochila', 0.5], 'umbrella': ['paraguas', 0.9]
+};
+const NEAR = 1.5;      // metros: aviso urgente
+const SIDE_BLOCK = 3;  // metros: un lado se considera ocupado
+const FAR = 8;         // metros: más lejos no se anuncia
+
+// ---------- Estado ----------
+const video = document.getElementById('cam');
+const canvas = document.getElementById('ov');
+const ctx = canvas.getContext('2d');
+const btnGuide = document.getElementById('btnGuide');
+const btnTalk = document.getElementById('btnTalk');
+const statusEl = document.getElementById('status');
+let model = null, stream = null, running = false, starting = false, listening = false;
+let wakeLock = null, lastSaid = '', lastUrgent = 0, lastSummary = 0, lastClear = 0;
+let seen = [];           // últimas detecciones procesadas
+let locatedOnce = false;
+
+// ---------- Voz ----------
+// mode: 'urgent' corta lo que se esté diciendo; 'queue' espera su turno;
+// 'skip' no dice nada si ya se está hablando.
+function say(text, mode) {
+  const synth = window.speechSynthesis;
+  statusEl.textContent = text;
+  if (!synth) return false;
+  if (mode === 'urgent') synth.cancel();
+  else if (mode === 'skip' && (synth.speaking || synth.pending)) return false;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'es-ES';
+  u.rate = 1.1;
+  synth.speak(u);
+  lastSaid = text;
+  return true;
+}
+function buzz(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
+
+function metros(d) {
+  if (d < 1) return 'a menos de un metro';
+  const n = Math.round(d);
+  return n === 1 ? 'a un metro' : 'a ' + n + ' metros';
+}
+const ZONE_TXT = { izq: 'a la izquierda', cen: 'delante', der: 'a la derecha' };
+
+// ---------- Cálculo (funciones puras, se prueban aparte) ----------
+function estimateDistance(cls, bbox, vw, vh) {
+  const h = bbox[3], y = bbox[1];
+  const vfov = (vh >= vw ? 65 : 50) * Math.PI / 180; // campo de visión vertical supuesto
+  const focal = (vh / 2) / Math.tan(vfov / 2);
+  // Si el objeto llena la imagen de arriba abajo, está encima.
+  if (y <= vh * 0.02 && y + h >= vh * 0.98) return 0.8;
+  return OBJ[cls][1] * focal / h;
+}
+function zoneOf(bbox, vw) {
+  const cx = (bbox[0] + bbox[2] / 2) / vw;
+  return cx < 0.33 ? 'izq' : cx > 0.67 ? 'der' : 'cen';
+}
+function process(preds, vw, vh) {
+  return preds.filter(p => OBJ[p.class]).map(p => ({
+    name: OBJ[p.class][0],
+    zone: zoneOf(p.bbox, vw),
+    dist: estimateDistance(p.class, p.bbox, vw, vh),
+    bbox: p.bbox
+  })).filter(o => o.dist <= FAR).sort((a, b) => a.dist - b.dist);
+}
+function advice(objs) {
+  const blocked = z => objs.some(o => o.zone === z && o.dist < SIDE_BLOCK);
+  if (!blocked('izq')) return 'Pasa por la izquierda.';
+  if (!blocked('der')) return 'Pasa por la derecha.';
+  return 'Detente.';
+}
+function describeText(objs) {
+  if (!objs.length) return 'No detecto obstáculos conocidos delante.';
+  return objs.slice(0, 4).map(o => o.name + ' ' + ZONE_TXT[o.zone] + ', ' + metros(o.dist)).join('. ') + '.';
+}
+
+// ---------- Guía ----------
+function announce(objs) {
+  if (listening) return;
+  const now = Date.now();
+  const danger = objs.find(o => o.zone === 'cen' && o.dist < NEAR);
+  if (danger) {
+    if (now - lastUrgent > 2500) {
+      lastUrgent = now; lastSummary = now;
+      buzz([250, 100, 250]);
+      say('Cuidado. ' + danger.name + ' delante, ' + metros(danger.dist) + '. ' + advice(objs), 'urgent');
+    }
+    return;
+  }
+  if (objs.length) {
+    if (now - lastSummary > 4000) {
+      const text = objs.slice(0, 2).map(o => o.name + ' ' + ZONE_TXT[o.zone] + ', ' + metros(o.dist)).join('. ') + '.';
+      if (say(text, 'skip')) lastSummary = now;
+    }
+  } else if (now - lastClear > 12000 && now - lastSummary > 4000) {
+    if (say('Sin obstáculos detectados.', 'skip')) lastClear = now;
+  }
+}
+
+function draw(objs) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (canvas.width !== vw || canvas.height !== vh) { canvas.width = vw; canvas.height = vh; }
+  ctx.clearRect(0, 0, vw, vh);
+  ctx.lineWidth = Math.max(3, vw / 160);
+  ctx.font = 'bold ' + Math.max(16, vw / 28) + 'px system-ui, sans-serif';
+  for (const o of objs) {
+    const [x, y, w, h] = o.bbox;
+    ctx.strokeStyle = ctx.fillStyle = o.dist < NEAR ? '#ff453a' : '#ffd60a';
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillText(o.name + ' ' + o.dist.toFixed(1) + ' m', x + 6, Math.max(y - 8, 24));
+  }
+}
+
+async function loop() {
+  while (running) {
+    if (video.readyState >= 2 && video.videoWidth) {
+      try {
+        const preds = await model.detect(video, 12, 0.5);
+        if (!running) break;
+        seen = process(preds, video.videoWidth, video.videoHeight);
+        draw(seen);
+        announce(seen);
+      } catch (e) { console.error(e); }
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+
+async function start() {
+  if (running || starting) return;
+  starting = true;
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      say('Este navegador no permite usar la cámara.', 'urgent'); return;
+    }
+    say('Preparando la guía. Espera.', 'urgent');
+    // La cámara se pide primero, mientras el toque del usuario sigue siendo reciente.
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    if (!model) model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+    try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+    running = true;
+    btnGuide.setAttribute('aria-pressed', 'true');
+    btnGuide.textContent = 'Parar guía';
+    buzz(80);
+    say('Guía activada. Lleva el móvil a la altura del pecho, con la cámara hacia delante. ' +
+        'Usa siempre tu bastón o tu perro guía: no detecto escalones, bordillos ni cristales.', 'urgent');
+    if (!locatedOnce) { locatedOnce = true; whereAmI(); }
+    loop();
+  } catch (e) {
+    console.error(e);
+    stopCamera();
+    const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+    say(denied ? 'No tengo permiso para usar la cámara. Actívalo en los ajustes del navegador.'
+               : 'No he podido iniciar la guía. Comprueba la conexión y vuelve a intentarlo.', 'urgent');
+  } finally { starting = false; }
+}
+
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.srcObject = null;
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+function stop() {
+  if (!running) { say('La guía ya está parada.', 'urgent'); return; }
+  running = false;
+  seen = [];
+  stopCamera();
+  btnGuide.setAttribute('aria-pressed', 'false');
+  btnGuide.textContent = 'Iniciar guía';
+  buzz(80);
+  say('Guía parada.', 'urgent');
+}
+
+// ---------- Ubicación ----------
+async function whereAmI() {
+  if (!navigator.geolocation) { say('Este móvil no ofrece ubicación.', 'queue'); return; }
+  say('Buscando tu ubicación.', 'queue');
+  try {
+    const pos = await new Promise((ok, ko) => navigator.geolocation.getCurrentPosition(ok, ko,
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }));
+    const c = pos.coords;
+    const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1' +
+      '&accept-language=es&lat=' + c.latitude + '&lon=' + c.longitude;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('geocoder ' + r.status);
+    say(placeText(await r.json(), c.accuracy), 'queue');
+  } catch (e) {
+    console.error(e);
+    say(e && e.code === 1 ? 'No tengo permiso para usar la ubicación.'
+                          : 'No he podido averiguar dónde estás.', 'queue');
+  }
+}
+function placeText(j, accuracy) {
+  const a = (j && j.address) || {};
+  const street = a.road || a.pedestrian || a.footway || a.path || a.square;
+  const town = a.city || a.town || a.village || a.municipality;
+  let t;
+  if (street) t = 'Estás en ' + street + (a.house_number ? ', número ' + a.house_number : '');
+  else if (town) t = 'No encuentro el nombre de la calle. Estás';
+  else return 'No encuentro el nombre de este lugar.';
+  if (town) t += (street ? ', ' : ' en ') + town;
+  t += '.';
+  if (accuracy) t += ' Precisión aproximada: ' + Math.round(accuracy) + ' metros.';
+  return t;
+}
+
+// ---------- Órdenes por voz ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function listen() {
+  if (!SR) { say('Este navegador no admite órdenes por voz. Usa Chrome.', 'urgent'); return; }
+  if (listening) return;
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  const rec = new SR();
+  rec.lang = 'es-ES';
+  rec.maxAlternatives = 3;
+  rec.interimResults = false;
+  let got = false;
+  rec.onresult = e => {
+    got = true;
+    const alts = [];
+    for (let i = 0; i < e.results[0].length; i++) alts.push(e.results[0][i].transcript);
+    handle(alts.join(' | '));
+  };
+  rec.onerror = e => {
+    got = true;
+    say(e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'No tengo permiso para usar el micrófono.' : 'No te he oído. Pulsa abajo y repite la orden.', 'urgent');
+  };
+  rec.onend = () => { listening = false; if (!got) say('No te he oído. Pulsa abajo y repite la orden.', 'urgent'); };
+  listening = true;
+  buzz(60);
+  statusEl.textContent = 'Escuchando…';
+  try { rec.start(); } catch (e) { listening = false; }
+}
+function norm(s) { return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function command(text) {
+  const t = ' ' + norm(text).replace(/[^a-z0-9| ]/g, ' ').replace(/\s+/g, ' ') + ' ';
+  const has = (...w) => w.some(x => t.includes(' ' + x + ' ') || (x.includes(' ') && t.includes(x)));
+  if (has('donde estoy', 'ubicacion', 'calle', 'donde me encuentro')) return 'where';
+  if (has('para', 'parar', 'parate', 'detente', 'deten', 'stop', 'termina', 'apaga')) return 'stop';
+  if (has('que hay', 'describe', 'que ves', 'que tengo delante')) return 'describe';
+  if (has('empieza', 'inicia', 'iniciar', 'comienza', 'vamos', 'guiame', 'activa', 'guia')) return 'start';
+  if (has('repite', 'otra vez', 'repetir')) return 'repeat';
+  if (has('ayuda', 'ordenes', 'instrucciones')) return 'help';
+  return null;
+}
+function handle(text) {
+  switch (command(text)) {
+    case 'where': whereAmI(); break;
+    case 'stop': stop(); break;
+    case 'describe': say(running ? describeText(seen) : 'Inicia primero la guía para que pueda ver.', 'urgent'); break;
+    case 'start': running ? say('La guía ya está activada.', 'urgent') : start(); break;
+    case 'repeat': say(lastSaid || 'Todavía no he dicho nada.', 'urgent'); break;
+    case 'help': help(); break;
+    default: say('No he entendido la orden. Di ayuda para oír las órdenes.', 'urgent');
+  }
+}
+function help() {
+  say('Mitad superior de la pantalla: iniciar o parar la guía. Mitad inferior: dar una orden. ' +
+      'Órdenes: inicia la guía, para, dónde estoy, qué hay delante, repite y ayuda.', 'urgent');
+}
+
+// ---------- Arranque ----------
+if (typeof document !== 'undefined' && btnGuide) {
+  btnGuide.addEventListener('click', () => running ? stop() : start());
+  btnTalk.addEventListener('click', listen);
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && running && navigator.wakeLock && !wakeLock) {
+      try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+    } else if (document.visibilityState === 'hidden') { wakeLock = null; }
+  });
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Arranque sin tocar la pantalla: si el permiso de cámara ya se concedió en un uso
+  // anterior, la guía empieza sola al abrir la app (por ejemplo, con "Ok Google, abre Paso Firme").
+  window.addEventListener('load', async () => {
+    try {
+      const p = await navigator.permissions.query({ name: 'camera' });
+      if (p.state === 'granted') start();
+    } catch (e) {}
+  });
+}
+</script>
+</body>
+</html>
