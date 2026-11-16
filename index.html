@@ -77,6 +77,7 @@
 
 <script src="tf.min.js"></script>
 <script src="coco-ssd.min.js"></script>
+<script src="lectura.js"></script>
 <script>
 'use strict';
 
@@ -141,6 +142,9 @@ const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers
 const DEPTH_MODEL = 'onnx-community/depth-anything-v2-small';
 let depthT = null, depthPipe = null, depthLoading = false, depthLooping = false;
 let depth = { state: 'off', C: 0, L: 0, R: 0, B: 0, ts: 0, ms: 0 };
+let busy = null, cancelBusy = false, pendingUrl = null, history = [], coming = null, lastComing = 0;
+let tiltBeta = null, lastTilt = 0;
+const wait = ms => new Promise(r => setTimeout(r, ms));
 let stopped = false, lastWarn = 0, wc = null, wctx = null, lc = null, lctx = null;
 let locatedOnce = false;
 
@@ -222,6 +226,35 @@ function analyzeDepth(d, W, H) {
   else if (C >= 0.52) state = 'warn';
   return { state, C, L, R, B };
 }
+// Cosas que se mueven: si en uno o dos segundos se han acercado mucho, se avisa aparte.
+const MOVING = { person: 1, bicycle: 1, car: 1, motorcycle: 1, bus: 1, truck: 1, dog: 1 };
+function approaching(prev, cur, dtMs) {
+  if (!prev || !(dtMs > 0) || dtMs > 2500) return null;
+  for (const o of cur) {
+    if (!MOVING[o.kind] || o.dist > 6) continue;
+    const p = prev.find(q => q.kind === o.kind && q.zone === o.zone);
+    if (p && p.dist - o.dist >= Math.max(0.7, p.dist * 0.25)) return o;
+  }
+  return null;
+}
+// Inclinación del móvil (beta: 90 = vertical, con la cámara mirando al frente).
+function tiltAdvice(beta) {
+  if (typeof beta !== 'number' || isNaN(beta)) return null;
+  if (beta < 55) return 'Levanta el móvil: la cámara apunta al suelo.';
+  if (beta > 125) return 'Baja un poco el móvil: la cámara apunta hacia arriba.';
+  return null;
+}
+// Qué decir de un código leído. Devuelve el texto y, si es una página web, su dirección.
+function codeText(value) {
+  const v = String(value == null ? '' : value).trim();
+  if (!v) return { text: 'El código está vacío.', url: null };
+  if (/^https?:\/\//i.test(v)) {
+    let host = v;
+    try { host = new URL(v).hostname.replace(/^www\./, ''); } catch (e) {}
+    return { text: 'El código lleva a una página web de ' + host + '. Para abrirla, pulsa el botón de abajo y di abrir.', url: v };
+  }
+  return { text: 'El código dice: ' + v, url: null };
+}
 function depthAdvice(dp) {
   const l = dp.L < 0.5, r = dp.R < 0.5;
   if (l && r) return dp.L <= dp.R ? 'Hay más espacio a la izquierda.' : 'Hay más espacio a la derecha.';
@@ -281,9 +314,22 @@ function decide(objs, dp, dstate) {
   return { stop: false };
 }
 function announce(objs) {
-  if (listening) return;
+  if (listening || busy) return;
   const now = Date.now();
   const dec = decide(objs, depth, depthState());
+  if (coming && !dec.stop && now - lastComing > 5000) {
+    lastComing = now; lastSummary = now;
+    const near = coming.dist < 3;
+    if (near) { buzz([250, 100, 250]); tones([[330, 0.16], [330, 0.16]]); stopped = true; lastUrgent = now; }
+    say((near ? 'Para. ' : '') + 'Se acerca ' + coming.name + ' ' + ZONE_TXT[coming.zone] + '.', 'urgent');
+    return;
+  }
+  const tilt = tiltAdvice(tiltBeta);
+  if (tilt && now - lastTilt > 6000) {
+    lastTilt = now; lastSummary = now;
+    say(tilt, 'urgent');
+    return;
+  }
   if (dec.stop) {
     if (now - lastUrgent > 3500) {
       lastUrgent = now; lastSummary = now;
@@ -334,6 +380,7 @@ async function depthLoop() {
   if (!wc) { wc = document.createElement('canvas'); wctx = wc.getContext('2d', { willReadFrequently: true }); }
   depth.ts = Date.now();
   while (running && depthPipe) {
+    if (busy) { await wait(300); depth.ts = Date.now(); continue; }
     if (video.readyState >= 2 && video.videoWidth) {
       try {
         const vw = video.videoWidth, vh = video.videoHeight, s = 160 / Math.max(vw, vh);
@@ -379,6 +426,7 @@ function draw(objs) {
 
 async function loop() {
   while (running) {
+    if (busy) { await wait(300); continue; }
     if (video.readyState >= 2 && video.videoWidth) {
       try {
         const t0 = performance.now();
@@ -387,6 +435,11 @@ async function loop() {
         if (!running) break;
         seen = process(preds, video.videoWidth, video.videoHeight);
         readLights(seen);
+        const nowT = Date.now();
+        history = history.filter(s => nowT - s.t <= 2500);
+        const old = history.find(s => nowT - s.t >= 1000);
+        coming = old ? approaching(old.objs, seen, nowT - old.t) : null;
+        history.push({ t: nowT, objs: seen });
         draw(seen);
         diagEl.textContent = seen.length + (seen.length === 1 ? ' objeto' : ' objetos') + ' · ' + ms + ' ms · ' +
           (modelBase === 'mobilenet_v2' ? 'preciso' : 'ligero') +
@@ -409,6 +462,20 @@ async function loop() {
   }
 }
 
+async function openCamera() {
+  if (stream) return;
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } },
+    audio: false
+  });
+  video.srcObject = stream;
+  await video.play();
+}
+function cameraError(e) {
+  const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+  return denied ? 'No tengo permiso para usar la cámara. Actívalo en los ajustes del navegador.'
+                : 'No he podido usar la cámara. Vuelve a intentarlo.';
+}
 async function start() {
   if (running || starting) return;
   starting = true;
@@ -418,12 +485,7 @@ async function start() {
     }
     say('Preparando la guía. Espera.', 'urgent');
     // La cámara se pide primero, mientras el toque del usuario sigue siendo reciente.
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false
-    });
-    video.srcObject = stream;
-    await video.play();
+    await openCamera();
     if (!model) {
       try { model = await cocoSsd.load({ base: modelBase }); }
       catch (e) { modelBase = 'lite_mobilenet_v2'; model = await cocoSsd.load({ base: modelBase }); }
@@ -453,6 +515,8 @@ function stopCamera() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 function stop() {
+  // Si se está leyendo un texto o un código, "para" detiene la lectura y deja la guía como estaba.
+  if (busy) { cancelBusy = true; if (window.speechSynthesis) window.speechSynthesis.cancel(); say('Lectura parada.', 'urgent'); return; }
   if (!running) { say('La guía ya está parada.', 'urgent'); return; }
   running = false;
   seen = [];
@@ -532,6 +596,9 @@ function command(text) {
   if (has('para', 'parar', 'parate', 'detente', 'deten', 'stop', 'termina', 'apaga')) return 'stop';
   if (has('que hay', 'describe', 'que ves', 'que tengo delante')) return 'describe';
   if (has('empieza', 'inicia', 'iniciar', 'comienza', 'vamos', 'guiame', 'activa', 'guia')) return 'start';
+  if (has('codigo', 'qr', 'cu erre')) return 'code';
+  if (has('lee', 'leer', 'leeme', 'lee esto', 'texto', 'periodico', 'carta', 'cartel')) return 'read';
+  if (has('abre', 'abrir', 'abrela')) return 'open';
   if (has('repite', 'otra vez', 'repetir')) return 'repeat';
   if (has('ayuda', 'ordenes', 'instrucciones')) return 'help';
   return null;
@@ -542,20 +609,93 @@ function handle(text) {
     case 'stop': stop(); break;
     case 'describe': say(running ? describeText(seen) + ' ' + pathText(depthState()) : 'Inicia primero la guía para que pueda ver.', 'urgent'); break;
     case 'start': running ? say('La guía ya está activada.', 'urgent') : start(); break;
+    case 'read': readText(); break;
+    case 'code': readCode(); break;
+    case 'open':
+      if (pendingUrl) { say('Abro la página.', 'urgent'); const u = pendingUrl; pendingUrl = null; setTimeout(() => location.assign(u), 1200); }
+      else say('No hay ninguna página pendiente de abrir.', 'urgent');
+      break;
     case 'repeat': say(lastSaid || 'Todavía no he dicho nada.', 'urgent'); break;
     case 'help': help(); break;
     default: say('No he entendido la orden. Di ayuda para oír las órdenes.', 'urgent');
   }
 }
+// ---------- Lectura de textos y de códigos ----------
+function speaking() { const s = window.speechSynthesis; return !!s && (s.speaking || s.pending); }
+async function waitSpeech() { await wait(400); while (speaking() && !cancelBusy) await wait(200); }
+function endBusy() { busy = null; depth.ts = Date.now(); history = []; coming = null; if (!running) stopCamera(); }
+async function readText() {
+  if (busy) { say('Ya estoy leyendo. Di para si quieres que pare.', 'urgent'); return; }
+  if (!window.PFLectura) { say('El lector de textos no está disponible.', 'urgent'); return; }
+  busy = 'lectura'; cancelBusy = false;
+  try {
+    await openCamera();
+    say('Preparando el lector. Pon el papel delante de la cámara, a un palmo, y mantén el móvil quieto.', 'urgent');
+    await PFLectura.preparar();
+    await waitSpeech();
+    let last = '';
+    for (let i = 0; i < 8 && !cancelBusy; i++) {
+      tones([[660, 0.06]]);
+      const r = await PFLectura.leer(await PFLectura.capturar(video));
+      if (cancelBusy) break;
+      if (r.texto) {
+        tones([[523, 0.1], [784, 0.14]]);
+        for (const part of PFLectura.trocear(r.texto, 180)) say(part, 'queue');
+        if (r.aviso) say(r.aviso, 'queue');
+        await waitSpeech();
+        if (!cancelBusy) say('Fin del texto. Di lee esto para leer otra página.', 'queue');
+        return;
+      }
+      const aviso = r.aviso || 'No lo leo bien. Mueve un poco el móvil.';
+      if (aviso !== last || i % 2 === 0) { say(aviso, 'urgent'); last = aviso; }
+      await waitSpeech();
+      await wait(1200);
+    }
+    if (!cancelBusy) say('No he conseguido leerlo. Di lee esto para intentarlo otra vez.', 'urgent');
+  } catch (e) {
+    console.error(e);
+    say(e && e.name ? cameraError(e) : 'No he podido cargar el lector de textos. Comprueba la conexión.', 'urgent');
+  } finally { endBusy(); }
+}
+async function readCode() {
+  if (busy) { say('Ya estoy leyendo. Di para si quieres que pare.', 'urgent'); return; }
+  if (!('BarcodeDetector' in window)) { say('Este navegador no puede leer códigos.', 'urgent'); return; }
+  busy = 'codigo'; cancelBusy = false;
+  try {
+    await openCamera();
+    const det = new BarcodeDetector({ formats: ['qr_code'] });
+    say('Busco un código. Mueve el móvil despacio delante de él.', 'urgent');
+    const t0 = Date.now();
+    let hint = Date.now();
+    while (!cancelBusy && Date.now() - t0 < 30000) {
+      let codes = [];
+      try { if (video.readyState >= 2) codes = await det.detect(video); } catch (e) {}
+      if (codes.length) {
+        const c = codeText(codes[0].rawValue);
+        pendingUrl = c.url;
+        tones([[523, 0.1], [784, 0.14]]);
+        say('Código encontrado.', 'urgent');
+        const parts = window.PFLectura ? PFLectura.trocear(c.text, 180) : [c.text];
+        for (const part of parts) say(part, 'queue');
+        return;
+      }
+      if (Date.now() - hint > 7000) { hint = Date.now(); say('Todavía no lo veo. Aleja un poco el móvil y muévelo despacio.', 'skip'); }
+      await wait(250);
+    }
+    if (!cancelBusy) say('No he encontrado ningún código.', 'urgent');
+  } catch (e) { console.error(e); say(cameraError(e), 'urgent'); }
+  finally { endBusy(); }
+}
 function help() {
   say('Botón de arriba: iniciar o parar la guía. Botón de abajo: dar una orden. ' +
-      'Órdenes: inicia la guía, para, dónde estoy, qué hay delante, repite y ayuda.', 'urgent');
+      'Órdenes: inicia la guía, para, dónde estoy, qué hay delante, lee esto, lee el código, repite y ayuda.', 'urgent');
 }
 
 // ---------- Arranque ----------
 if (typeof document !== 'undefined' && btnGuide) {
   btnGuide.addEventListener('click', () => running ? stop() : start());
   btnTalk.addEventListener('click', listen);
+  window.addEventListener('deviceorientation', e => { tiltBeta = typeof e.beta === 'number' ? e.beta : null; });
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible' && running && navigator.wakeLock && !wakeLock) {
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
