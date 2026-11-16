@@ -272,12 +272,16 @@ function depthAdvice(dp) {
 }
 // Estado estable del camino a partir de la cercanía C del centro (0 lejos, 1 pegado).
 // Los umbrales de entrada y de salida son distintos para que el aviso no salte de uno a otro.
-function nextLevel(prev, C, flat) {
+// THR.stop es la cercanía a la que se ordena parar. Se ajusta con la orden "calibra" (a dos pasos de una pared).
+function loadThr() { try { const v = parseFloat(localStorage.getItem('pf-stop')); if (v >= 0.5 && v <= 0.98) return v; } catch (e) {} return 0.86; }
+let THR = { stop: loadThr() };
+function nextLevel(prev, C, flat, stop) {
+  const s = stop || THR.stop;
   if (flat) return 'stop';
-  if (prev === 'stop') return C >= 0.74 ? 'stop' : C >= 0.62 ? 'warn' : 'free';
-  if (C >= 0.86) return 'stop';
-  if (prev === 'warn') return C >= 0.62 ? 'warn' : 'free';
-  return C >= 0.70 ? 'warn' : 'free';
+  if (prev === 'stop') return C >= s - 0.12 ? 'stop' : C >= s - 0.24 ? 'warn' : 'free';
+  if (C >= s) return 'stop';
+  if (prev === 'warn') return C >= s - 0.24 ? 'warn' : 'free';
+  return C >= s - 0.16 ? 'warn' : 'free';
 }
 function median(a) { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; }
 // Resumen de las mediciones para el informe de diagnóstico. PURA.
@@ -428,7 +432,7 @@ async function depthLoop() {
         dHist.push(a); if (dHist.length > 3) dHist.shift();
         const sm = k => median(dHist.map(x => x[k]));
         const C = sm('C'), flat = dHist.length === 3 && dHist.every(x => x.flat);
-        depth = { state: a.state, C, L: sm('L'), R: sm('R'), B: sm('B'), level: nextLevel(depth.level || 'free', C, flat),
+        depth = { state: a.state, C, L: sm('L'), R: sm('R'), B: sm('B'), level: a.C >= THR.stop + 0.05 ? 'stop' : nextLevel(depth.level || 'free', C, flat),
           ts: Date.now(), ms: Math.round(performance.now() - t0) };
         diagLog.push({ C: a.C, L: a.L, R: a.R, B: a.B, ms: depth.ms, level: depth.level }); if (diagLog.length > 600) diagLog.shift();
       } catch (e) { console.error(e); }
@@ -711,6 +715,7 @@ function command(text) {
   if (has('lee', 'leer', 'leeme', 'lee esto', 'texto', 'periodico', 'carta', 'cartel')) return 'read';
   if (has('abre', 'abrir', 'abrela')) return 'open';
   if (has('cambia mi nombre', 'cambiar mi nombre', 'cambia el nombre', 'mi nombre')) return 'rename';
+  if (has('calibra', 'calibrar', 'calibracion')) return 'calibrate';
   if (has('diagnostico', 'informe')) return 'report';
   if (has('opciones', 'menu', 'que puedes hacer', 'que sabes hacer')) return 'options';
   if (has('siguiente', 'otro sitio')) return 'next';
@@ -729,9 +734,10 @@ function handle(text) {
   switch (cmd) {
     case 'rename': onboarding = true; nameTries = 0; askName(); break;
     case 'options': options(false); break;
+    case 'calibrate': calibrate(); break;
     case 'report': {
       const el = document.getElementById('rep');
-      el.textContent = reportText(diagLog, 'objetos ' + modelBase + ' · aislado ' + (self.crossOriginIsolated ? 'sí' : 'no') + '\n' + navigator.userAgent.slice(0, 110)) + '\n\nToca aquí para cerrar.';
+      el.textContent = reportText(diagLog, 'parada ' + THR.stop.toFixed(2) + ' · objetos ' + modelBase + ' · aislado ' + (self.crossOriginIsolated ? 'sí' : 'no') + '\n' + navigator.userAgent.slice(0, 110)) + '\n\nToca aquí para cerrar.';
       el.hidden = false;
       say('Informe en pantalla. Haz una captura y envíala.', 'urgent');
       break;
@@ -917,6 +923,36 @@ async function onMove(pos) {
 function stopRoute() {
   if (navWatch !== null) navigator.geolocation.clearWatch(navWatch);
   navWatch = null; nav = null;
+}
+// Calibración: mide la cercanía con el usuario a dos pasos de una pared y la usa como punto de parada.
+async function calibrate() {
+  if (busy) return;
+  if (!running || !depthPipe) { say('Primero inicia la guía y espera a que diga que el detector de paredes está listo.', 'urgent'); return; }
+  busy = 'calibra'; cancelBusy = false;
+  try {
+    say('Ponte de frente a una pared, a dos pasos largos, con el móvil a la altura del pecho. Quédate quieto.', 'urgent');
+    await waitSpeech(); await wait(1500);
+    const vals = [];
+    for (let i = 0; i < 4 && !cancelBusy; i++) {
+      const vw = video.videoWidth, vh = video.videoHeight, s = 160 / Math.max(vw, vh);
+      wc.width = Math.round(vw * s); wc.height = Math.round(vh * s);
+      wctx.drawImage(video, 0, 0, wc.width, wc.height);
+      const out = await depthPipe(depthT.RawImage.fromCanvas(wc));
+      const pd = out.predicted_depth, dims = pd.dims;
+      vals.push(analyzeDepth(pd.data, dims[dims.length - 1], dims[dims.length - 2]).C);
+      tones([[700, 0.05]]);
+    }
+    if (cancelBusy) return;
+    const c = median(vals);
+    if (vals.length < 3 || c < 0.5 || c > 0.98) {
+      say('No he podido calibrar. La medida ha sido ' + Math.round(c * 100) + '. Colócate a dos pasos de una pared lisa y repite.', 'urgent');
+      return;
+    }
+    THR.stop = c;
+    try { localStorage.setItem('pf-stop', String(c)); } catch (e) {}
+    say('Calibrado en ' + Math.round(c * 100) + '. Te mandaré parar a unos dos pasos de un obstáculo.', 'urgent');
+  } catch (e) { console.error(e); say('No he podido calibrar.', 'urgent'); }
+  finally { endBusy(); }
 }
 function help() { options(false); }
 
