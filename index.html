@@ -158,20 +158,111 @@ let locatedOnce = false;
 // ---------- Voz ----------
 // mode: 'urgent' corta lo que se esté diciendo; 'queue' espera su turno;
 // 'skip' no dice nada si ya se está hablando.
-function say(text, mode, onDone) {
-  const synth = window.speechSynthesis;
-  statusEl.textContent = text;
-  if (!synth) { if (onDone) onDone(); return false; }
-  if (mode === 'urgent') synth.cancel();
-  else if (mode === 'skip' && (synth.speaking || synth.pending)) return false;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'es-ES';
-  u.rate = 1.05;
-  if (onDone) { let once = false; const fin = () => { if (!once) { once = true; onDone(); } }; u.onend = fin; u.onerror = fin; }
-  synth.speak(u);
-  lastSaid = text;
-  return true;
+// ---------- Voz: una sola cola ----------
+// Solo suena una frase cada vez, de principio a fin. Prioridades:
+//   alert  (3) orden de parar: corta lo que suene, salvo otra orden de parar recién empezada.
+//   urgent (2) respuesta a una orden del usuario: corta lo que no sea una orden de parar.
+//   queue  (2) se añade al final y espera su turno (lecturas, ubicación, giros de la ruta).
+//   info   (1) aviso que caduca: espera turno, pero si pasan 4 segundos ya no se dice.
+//   skip   (0) comentario: solo se dice si no hay nada sonando ni esperando.
+const PRI = { alert: 3, urgent: 2, queue: 2, info: 1, skip: 0 };
+function makeVoice(engine, now, setT, clearT) {
+  let cur = null, q = [], gen = 0, dog = null;
+  function next() {
+    while (q.length) {
+      const it = q.shift();
+      if (it.ttl && now() - it.t > it.ttl) continue;
+      play(it, 0); return;
+    }
+  }
+  function play(it, delay) {
+    cur = it;
+    const g = ++gen;
+    const end = () => {
+      if (g !== gen || cur !== it) return;
+      if (dog !== null) { clearT(dog); dog = null; }
+      cur = null;
+      next();
+      if (it.onDone) it.onDone();
+    };
+    const go = () => {
+      if (g !== gen || cur !== it) return;
+      it.started = now();
+      engine.speak(it.text, end);
+      // Si el móvil no avisa de que la frase terminó, se da por terminada pasado su tiempo estimado.
+      dog = setT(end, it.text.length * 110 + 4000);
+    };
+    if (delay) setT(go, delay); else go();
+  }
+  function interrupt() {
+    gen++;
+    if (dog !== null) { clearT(dog); dog = null; }
+    const was = cur; cur = null;
+    if (was) engine.cancel();
+    return !!was;
+  }
+  function say(text, mode, onDone) {
+    const pri = PRI[mode] === undefined ? 2 : PRI[mode];
+    const it = { text, pri, mode, onDone, t: now(), ttl: mode === 'info' ? 4000 : 0, started: 0 };
+    const idle = !cur && !q.length;
+    if (idle) { play(it, 0); return true; }
+    if (mode === 'skip') return false;
+    if (mode === 'info') { q = q.filter(x => x.mode !== 'info'); q.push(it); return true; }
+    if (mode === 'queue') { q.push(it); return true; }
+    if (mode === 'alert') {
+      q = q.filter(x => x.pri >= 2 && x.mode !== 'alert');
+      if (cur && cur.mode === 'alert' && now() - (cur.started || cur.t) < 2500) { q.unshift(it); return true; }
+      const cut = interrupt();
+      play(it, cut ? 150 : 0);   // tras cortar una frase, el móvil necesita un instante antes de hablar
+      return true;
+    }
+    // urgent
+    q = q.filter(x => x.mode === 'alert');
+    if (cur && cur.mode === 'alert') { q.push(it); return true; }
+    const cut = interrupt();
+    play(it, cut ? 150 : 0);
+    return true;
+  }
+  return {
+    say,
+    shutUp() { q = []; interrupt(); },
+    busy() { return !!cur || q.length > 0; },
+    state() { return { cur: cur && cur.text, queued: q.map(x => x.text) }; }
+  };
 }
+let utterRef = null, esVoice = null;
+const speechEngine = {
+  speak(text, onend) {
+    const synth = window.speechSynthesis;
+    statusEl.textContent = text;
+    if (!synth) { setTimeout(onend, 0); return; }
+    if (!esVoice) {
+      const vs = synth.getVoices ? synth.getVoices() : [];
+      esVoice = vs.find(v => /^es[-_]ES/i.test(v.lang)) || vs.find(v => /^es/i.test(v.lang)) || null;
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'es-ES'; u.rate = 1.05;
+    if (esVoice) u.voice = esVoice;
+    u.onend = onend; u.onerror = onend;
+    utterRef = u;   // se guarda la referencia: si no, Chrome puede descartarla y no avisar del final
+    synth.speak(u);
+  },
+  cancel() { if (window.speechSynthesis) window.speechSynthesis.cancel(); }
+};
+const voice = makeVoice(speechEngine, () => Date.now(), (f, ms) => setTimeout(f, ms), id => clearTimeout(id));
+let deferred = [];
+function say(text, mode, onDone) {
+  mode = mode || 'queue';
+  // Mientras el micrófono escucha, la app calla: lo pendiente se dice al terminar de escuchar.
+  if (listening && mode !== 'alert') {
+    if (mode === 'skip' || mode === 'info') return false;
+    deferred.push([text, mode, onDone]); return true;
+  }
+  const ok = voice.say(text, mode, onDone);
+  if (ok) lastSaid = text;
+  return ok;
+}
+function flushDeferred() { const d = deferred; deferred = []; for (const x of d) say(x[0], x[1], x[2]); }
 function buzz(pattern) { if (navigator.vibrate) navigator.vibrate(pattern); }
 
 function metros(d) {
@@ -348,9 +439,9 @@ function stopText(danger, ds, objs) {
 // 1) "Para" se dice una vez al entrar en parada y se repite, como mucho, cada 8 segundos.
 // 2) "Camino libre" solo cuando el paso lleva 1,5 segundos libre, y sin cortar la frase anterior.
 // 3) Un objeto cercano cuenta cuando sale en dos imágenes seguidas.
-let dangerRun = 0, dangerObj = null, freeAt = 0;
+let dangerRun = 0, dangerObj = null, freeAt = 0, introUntil = 0;
 function announce(objs) {
-  if (listening || busy) return;
+  if (listening || busy || Date.now() < introUntil) return;
   const now = Date.now();
   const found = objs.find(o => o.zone === 'cen' && o.dist < NEAR);
   if (found) { dangerRun = Math.min(dangerRun + 1, 3); dangerObj = found; } else dangerRun = Math.max(dangerRun - 1, 0);
@@ -362,7 +453,7 @@ function announce(objs) {
     if (first || now - lastUrgent > 8000) {
       lastUrgent = now; lastSummary = now; stopped = true;
       buzz([250, 100, 250]); tones([[330, 0.16], [330, 0.16]]);
-      say(stopText(danger, ds, objs), first ? 'urgent' : 'skip');
+      say(stopText(danger, ds, objs), first ? 'alert' : 'skip');
     }
     return;
   }
@@ -370,12 +461,12 @@ function announce(objs) {
     if (!freeAt) freeAt = now;
     if (now - freeAt < 1500) return;
     stopped = false; freeAt = 0; lastSummary = now; lastWarn = now;
-    say(ds === 'warn' ? 'Puedes seguir, muy despacio.' : 'Camino libre.', 'queue');
+    say(ds === 'warn' ? 'Puedes seguir, muy despacio.' : 'Camino libre.', 'info');
     return;
   }
   if (coming && now - lastComing > 6000) {
     lastComing = now; lastSummary = now;
-    say('Se acerca ' + coming.name + ' ' + ZONE_TXT[coming.zone] + '.', 'queue');
+    say('Se acerca ' + coming.name + ' ' + ZONE_TXT[coming.zone] + '.', 'info');
     return;
   }
   const tilt = tiltAdvice(tiltBeta);
@@ -539,7 +630,8 @@ async function start() {
     setGuideUI(true);
     buzz(80); tones([[523, 0.12], [784, 0.18]]);
     say('Guía activada' + hi() + '. Lleva el móvil a la altura del pecho, mirando al frente. ' +
-        'Usa siempre tu bastón o tu perro guía. No veo escalones, bordillos ni baches. Si digo para, detente.', 'urgent');
+        'Usa siempre tu bastón o tu perro guía. No veo escalones, bordillos ni baches. Si digo para, detente.', 'urgent', () => { introUntil = 0; });
+    introUntil = Date.now() + 15000;
     if (!locatedOnce) { locatedOnce = true; whereAmI(); }
     loop();
     loadDepth();
@@ -560,7 +652,7 @@ function stopCamera() {
 }
 function stop() {
   // Si se está leyendo un texto o un código, "para" detiene la lectura y deja la guía como estaba.
-  if (busy) { cancelBusy = true; if (window.speechSynthesis) window.speechSynthesis.cancel(); say('Lectura parada.', 'urgent'); return; }
+  if (busy) { cancelBusy = true; voice.shutUp(); say('Lectura parada.', 'urgent'); return; }
   if (!running) { say('La guía ya está parada.', 'urgent'); return; }
   running = false;
   seen = [];
@@ -677,7 +769,7 @@ function listen(mode) {
   if (typeof mode !== 'string') mode = null;
   if (!SR) { say('Este navegador no admite órdenes por voz. Usa Chrome.', 'urgent'); return; }
   if (listening) return;
-  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  voice.shutUp(); deferred = [];
   const rec = new SR();
   rec.lang = 'es-ES';
   rec.maxAlternatives = 3;
@@ -697,11 +789,11 @@ function listen(mode) {
     say(e.error === 'not-allowed' || e.error === 'service-not-allowed'
       ? 'No tengo permiso para usar el micrófono.' : notHeard(mode), 'urgent');
   };
-  rec.onend = () => { listening = false; btnTalk.classList.remove('listening'); if (!got) say(notHeard(mode), 'urgent'); };
+  rec.onend = () => { listening = false; btnTalk.classList.remove('listening'); flushDeferred(); if (!got) say(notHeard(mode), 'urgent'); };
   listening = true; btnTalk.classList.add('listening');
   buzz(60); tones([[880, 0.08]]);
   statusEl.textContent = 'Escuchando…';
-  try { rec.start(); } catch (e) { listening = false; btnTalk.classList.remove('listening'); }
+  try { rec.start(); } catch (e) { listening = false; btnTalk.classList.remove('listening'); flushDeferred(); }
 }
 function norm(s) { return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
 function command(text) {
@@ -764,7 +856,7 @@ function handle(text) {
   }
 }
 // ---------- Lectura de textos y de códigos ----------
-function speaking() { const s = window.speechSynthesis; return !!s && (s.speaking || s.pending); }
+function speaking() { return voice.busy() || deferred.length > 0; }
 async function waitSpeech() { await wait(400); while (speaking() && !cancelBusy) await wait(200); }
 function endBusy() { busy = null; depth.ts = Date.now(); history = []; coming = null; dHist = []; stopped = false; dangerRun = 0; if (!running) stopCamera(); }
 async function readText() {
