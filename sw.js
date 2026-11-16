@@ -1,5 +1,6 @@
-// Paso Firme: caché mínima para que la app sea instalable y abra sin conexión.
-const CACHE = 'paso-firme-v2';
+// Paso Firme: caché para instalar y abrir sin conexión, y cabeceras de aislamiento
+// (necesarias para que el medidor de profundidad use varios núcleos del móvil).
+const CACHE = 'paso-firme-v3';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'tf.min.js', 'coco-ssd.min.js'];
 
 self.addEventListener('install', e => {
@@ -8,21 +9,28 @@ self.addEventListener('install', e => {
 });
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('paso-firme-') && k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
-// Red primero; si falla, lo guardado. Las librerías y el modelo también se guardan.
+function isolate(res) {
+  if (!res || res.status === 0 || res.type === 'opaque') return res;
+  const h = new Headers(res.headers);
+  h.set('Cross-Origin-Opener-Policy', 'same-origin');
+  h.set('Cross-Origin-Embedder-Policy', 'credentialless');
+  h.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  const nobody = res.status === 204 || res.status === 304;
+  return new Response(nobody ? null : res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+// Red primero; si falla, lo guardado. Solo se gestionan los archivos propios:
+// los modelos y librerías externas los guarda el navegador por su cuenta.
 self.addEventListener('fetch', e => {
   const req = e.request;
-  if (req.method !== 'GET' || req.url.includes('nominatim')) return;
+  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
     fetch(req).then(res => {
-      if (res && (res.ok || res.type === 'opaque')) {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
-      }
-      return res;
-    }).catch(() => caches.match(req).then(r => r || Response.error()))
+      if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {}); }
+      return isolate(res);
+    }).catch(() => caches.match(req).then(r => r ? isolate(r) : Response.error()))
   );
 });

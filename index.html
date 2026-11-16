@@ -75,6 +75,12 @@ let seen = [];           // últimas detecciones procesadas
 let modelBase = 'mobilenet_v2'; // el más preciso; si va lento se cambia al ligero
 let slowFrames = 0, switching = false;
 const MIN_SCORE = 0.3;
+// Medidor de profundidad: detecta cualquier cosa cercana (paredes, puertas, muebles), tenga o no nombre.
+const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2';
+const DEPTH_MODEL = 'onnx-community/depth-anything-v2-small';
+let depthT = null, depthPipe = null, depthLoading = false, depthLooping = false;
+let depth = { state: 'off', C: 0, L: 0, R: 0, B: 0, ts: 0, ms: 0 };
+let stopped = false, lastWarn = 0, wc = null, wctx = null, lc = null, lctx = null;
 let locatedOnce = false;
 
 // ---------- Voz ----------
@@ -121,10 +127,66 @@ function zoneOf(bbox, vw) {
 function process(preds, vw, vh) {
   return preds.filter(p => OBJ[p.class]).map(p => ({
     name: OBJ[p.class][0],
+    kind: p.class,
     zone: zoneOf(p.bbox, vw),
     dist: estimateDistance(p.class, p.bbox, vw, vh),
     bbox: p.bbox
   })).filter(o => o.dist <= FAR).sort((a, b) => a.dist - b.dist);
+}
+// Analiza el mapa de profundidad relativa (valor alto = cerca). Devuelve el estado del camino.
+// C, L, R y B son la cercanía (0 lejos, 1 lo más cercano de la imagen) del centro, los lados y el suelo.
+function analyzeDepth(d, W, H) {
+  // Referencia de "lo más cercano de la imagen": percentil 95. Lo demás se mide como proporción de ella.
+  // En profundidad inversa, una proporción de 0,7 equivale a estar 1,4 veces más lejos que lo más cercano.
+  const all = [];
+  for (let i = 0; i < d.length; i += 7) all.push(d[i]);
+  all.sort((m, n) => m - n);
+  const lo = all[Math.floor(all.length * 0.05)], near = all[Math.floor(all.length * 0.95)];
+  // Imagen sin relieve: lo normal es tener una superficie pegada a la cámara. Ante la duda, bloqueado.
+  if (!(near > 0) || (near - lo) / near < 0.12) return { state: 'blocked', flat: true, C: 1, L: 1, R: 1, B: 1 };
+  const pct = (x0, x1, y0, y1, q) => {
+    const a = [];
+    for (let y = Math.floor(y0 * H); y < Math.floor(y1 * H); y += 3)
+      for (let x = Math.floor(x0 * W); x < Math.floor(x1 * W); x += 3) a.push(Math.max(0, d[y * W + x]) / near);
+    a.sort((m, n) => m - n);
+    return a.length ? Math.min(1, a[Math.min(a.length - 1, Math.floor(a.length * q))]) : 0;
+  };
+  const B = pct(0.25, 0.75, 0.88, 1, 0.5);
+  const C = pct(0.33, 0.67, 0.3, 0.62, 0.75);
+  const L = pct(0, 0.33, 0.3, 0.62, 0.6);
+  const R = pct(0.67, 1, 0.3, 0.62, 0.6);
+  let state = 'free';
+  if (C >= 0.72) state = 'blocked';
+  else if (B < 0.45) state = 'nofloor';
+  else if (C >= 0.52) state = 'warn';
+  return { state, C, L, R, B };
+}
+function depthAdvice(dp) {
+  const l = dp.L < 0.5, r = dp.R < 0.5;
+  if (l && r) return dp.L <= dp.R ? 'Hay más espacio a la izquierda.' : 'Hay más espacio a la derecha.';
+  if (l) return 'Gira a la izquierda.';
+  if (r) return 'Gira a la derecha.';
+  return 'No hay paso libre. Gira despacio sobre ti mismo hasta que te avise.';
+}
+// Color dominante de un semáforo a partir de sus píxeles (RGBA).
+function lightColor(px) {
+  let red = 0, green = 0, amber = 0;
+  const n = px.length / 4;
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i], g = px[i + 1], b = px[i + 2];
+    if (r > 170 && g > 110 && b < 110 && r > g * 1.1 && g > b * 1.4) amber++;
+    else if (r > 150 && r > g * 1.6 && r > b * 1.6) red++;
+    else if (g > 140 && g > r * 1.4 && g >= b * 0.9) green++;
+  }
+  const top = Math.max(red, green, amber);
+  if (top < n * 0.03) return null;
+  return top === red ? 'rojo' : top === green ? 'verde' : 'ámbar';
+}
+function lightLabel(color) {
+  if (color === 'rojo') return 'semáforo en rojo';
+  if (color === 'ámbar') return 'semáforo en ámbar';
+  if (color === 'verde') return 'semáforo en verde, confirma antes de cruzar';
+  return 'semáforo, no distingo el color';
 }
 function advice(objs) {
   const blocked = z => objs.some(o => o.zone === z && o.dist < SIDE_BLOCK);
@@ -132,22 +194,51 @@ function advice(objs) {
   if (!blocked('der')) return 'Pasa por la derecha.';
   return 'Detente.';
 }
+function pathText(st) {
+  return st === 'free' ? 'El camino de delante parece libre.' : st === 'warn' ? 'Hay algo cerca delante.' :
+    st === 'blocked' ? 'El paso de delante está cortado.' : st === 'off' ? 'El detector de paredes no está listo.' : 'No veo bien el camino.';
+}
 function describeText(objs) {
-  if (!objs.length) return 'No detecto ningún objeto conocido. Recuerda que todavía no reconozco paredes ni puertas.';
+  if (!objs.length) return 'No detecto ningún objeto conocido.';
   return objs.slice(0, 4).map(o => o.name + ' ' + ZONE_TXT[o.zone] + ', ' + metros(o.dist)).join('. ') + '.';
 }
 
 // ---------- Guía ----------
+function depthState() {
+  if (!depthPipe) return 'off';
+  if (Date.now() - depth.ts > 6000) return 'doubt';
+  return depth.state;
+}
+// Regla de seguridad: ante la duda, primero parar y después dar la instrucción.
+function decide(objs, dp, dstate) {
+  const danger = objs.find(o => o.zone === 'cen' && o.dist < NEAR);
+  if (danger) return { stop: true, text: 'Para. ' + danger.name + ' delante, ' + metros(danger.dist) + '. ' + advice(objs) };
+  if (dstate === 'blocked') return { stop: true, text: 'Para. Obstáculo delante, muy cerca. ' + depthAdvice(dp) };
+  if (dstate === 'doubt') return { stop: true, text: 'Para. No veo bien el camino. Espera sin avanzar.' };
+  if (dstate === 'nofloor') return { stop: true, text: 'Para. No veo el suelo. Inclina el móvil un poco hacia abajo.' };
+  if (dstate === 'warn') return { stop: false, warn: true, text: 'Atención, algo cerca delante. Avanza despacio.' };
+  return { stop: false };
+}
 function announce(objs) {
   if (listening) return;
   const now = Date.now();
-  const danger = objs.find(o => o.zone === 'cen' && o.dist < NEAR);
-  if (danger) {
-    if (now - lastUrgent > 2500) {
+  const dec = decide(objs, depth, depthState());
+  if (dec.stop) {
+    if (now - lastUrgent > 3500) {
       lastUrgent = now; lastSummary = now;
       buzz([250, 100, 250]);
-      say('Cuidado. ' + danger.name + ' delante, ' + metros(danger.dist) + '. ' + advice(objs), 'urgent');
+      say(dec.text, 'urgent');
     }
+    stopped = true;
+    return;
+  }
+  if (stopped) {
+    stopped = false; lastSummary = now;
+    say(dec.warn ? 'Hay algo de espacio. Avanza muy despacio.' : 'Camino libre. Puedes seguir despacio.', 'urgent');
+    return;
+  }
+  if (dec.warn && now - lastWarn > 4000) {
+    if (say(dec.text, 'skip')) { lastWarn = now; lastSummary = now; }
     return;
   }
   if (objs.length) {
@@ -156,7 +247,58 @@ function announce(objs) {
       if (say(text, 'skip')) lastSummary = now;
     }
   } else if (now - lastClear > 12000 && now - lastSummary > 4000) {
-    if (say('Sin obstáculos detectados.', 'skip')) lastClear = now;
+    if (say(depthPipe ? 'Camino libre.' : 'Sin objetos detectados. El detector de paredes aún no está listo.', 'skip')) lastClear = now;
+  }
+}
+
+// ---------- Profundidad ----------
+async function loadDepth() {
+  if (depthPipe || depthLoading) { if (depthPipe) depthLoop(); return; }
+  depthLoading = true;
+  try {
+    const T = await import(TRANSFORMERS_URL);
+    const p = await T.pipeline('depth-estimation', DEPTH_MODEL, { device: 'wasm', dtype: 'q8' });
+    p.processor.image_processor.size = { height: 154, width: 154 };
+    depthT = T; depthPipe = p; depth.ts = Date.now();
+    say('Detector de paredes y obstáculos listo.', 'queue');
+    depthLoop();
+  } catch (e) {
+    console.error(e);
+    say('No he podido cargar el detector de paredes. Solo reconoceré objetos conocidos.', 'queue');
+  } finally { depthLoading = false; }
+}
+async function depthLoop() {
+  if (depthLooping) return;
+  depthLooping = true;
+  if (!wc) { wc = document.createElement('canvas'); wctx = wc.getContext('2d', { willReadFrequently: true }); }
+  depth.ts = Date.now();
+  while (running && depthPipe) {
+    if (video.readyState >= 2 && video.videoWidth) {
+      try {
+        const vw = video.videoWidth, vh = video.videoHeight, s = 160 / Math.max(vw, vh);
+        wc.width = Math.round(vw * s); wc.height = Math.round(vh * s);
+        wctx.drawImage(video, 0, 0, wc.width, wc.height);
+        const t0 = performance.now();
+        const out = await depthPipe(depthT.RawImage.fromCanvas(wc));
+        const pd = out.predicted_depth, dims = pd.dims;
+        const a = analyzeDepth(pd.data, dims[dims.length - 1], dims[dims.length - 2]);
+        depth = Object.assign(a, { ts: Date.now(), ms: Math.round(performance.now() - t0) });
+      } catch (e) { console.error(e); }
+    }
+    await new Promise(r => setTimeout(r, 120));
+  }
+  depthLooping = false;
+}
+// Lee el color de cada semáforo detectado.
+function readLights(objs) {
+  for (const o of objs) {
+    if (o.kind !== 'traffic light') continue;
+    try {
+      if (!lc) { lc = document.createElement('canvas'); lc.width = 24; lc.height = 48; lctx = lc.getContext('2d', { willReadFrequently: true }); }
+      const [x, y, w, h] = o.bbox;
+      lctx.drawImage(video, x, y, w, h, 0, 0, 24, 48);
+      o.name = lightLabel(lightColor(lctx.getImageData(0, 0, 24, 48).data));
+    } catch (e) { o.name = lightLabel(null); }
   }
 }
 
@@ -183,9 +325,12 @@ async function loop() {
         const ms = Math.round(performance.now() - t0);
         if (!running) break;
         seen = process(preds, video.videoWidth, video.videoHeight);
+        readLights(seen);
         draw(seen);
         diagEl.textContent = seen.length + (seen.length === 1 ? ' objeto' : ' objetos') + ' · ' + ms + ' ms · ' +
-          (modelBase === 'mobilenet_v2' ? 'modelo preciso' : 'modelo ligero');
+          (modelBase === 'mobilenet_v2' ? 'preciso' : 'ligero') +
+          (depthPipe ? ' · prof ' + depth.state + ' C' + depth.C.toFixed(2) + ' I' + depth.L.toFixed(2) + ' D' + depth.R.toFixed(2) +
+            ' S' + depth.B.toFixed(2) + ' ' + depth.ms + ' ms' : ' · prof cargando');
         announce(seen);
         // Si cada imagen tarda más de 1,5 s, el aviso llegaría tarde: se pasa al modelo ligero.
         if (modelBase === 'mobilenet_v2' && !switching) {
@@ -228,9 +373,10 @@ async function start() {
     btnGuide.textContent = 'Parar guía';
     buzz(80);
     say('Guía activada. Lleva el móvil a la altura del pecho, con la cámara hacia delante. ' +
-        'Usa siempre tu bastón o tu perro guía: no detecto escalones, bordillos ni cristales.', 'urgent');
+        'Usa siempre tu bastón o tu perro guía: no detecto escalones, bordillos, baches ni pasos de peatones. Si digo para, detente.', 'urgent');
     if (!locatedOnce) { locatedOnce = true; whereAmI(); }
     loop();
+    loadDepth();
   } catch (e) {
     console.error(e);
     stopCamera();
@@ -250,6 +396,7 @@ function stop() {
   if (!running) { say('La guía ya está parada.', 'urgent'); return; }
   running = false;
   seen = [];
+  stopped = false;
   stopCamera();
   btnGuide.setAttribute('aria-pressed', 'false');
   btnGuide.textContent = 'Iniciar guía';
@@ -334,7 +481,7 @@ function handle(text) {
   switch (command(text)) {
     case 'where': whereAmI(); break;
     case 'stop': stop(); break;
-    case 'describe': say(running ? describeText(seen) : 'Inicia primero la guía para que pueda ver.', 'urgent'); break;
+    case 'describe': say(running ? describeText(seen) + ' ' + pathText(depthState()) : 'Inicia primero la guía para que pueda ver.', 'urgent'); break;
     case 'start': running ? say('La guía ya está activada.', 'urgent') : start(); break;
     case 'repeat': say(lastSaid || 'Todavía no he dicho nada.', 'urgent'); break;
     case 'help': help(); break;
@@ -355,7 +502,18 @@ if (typeof document !== 'undefined' && btnGuide) {
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
     } else if (document.visibilityState === 'hidden') { wakeLock = null; }
   });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // El service worker añade las cabeceras que permiten al medidor de profundidad usar varios núcleos.
+    // Hace falta recargar una vez para que surtan efecto.
+    const reloadOnce = () => {
+      try {
+        if (!self.crossOriginIsolated && !sessionStorage.getItem('pf-coi')) { sessionStorage.setItem('pf-coi', '1'); location.reload(); }
+      } catch (e) {}
+    };
+    if (navigator.serviceWorker.controller) reloadOnce();
+    else navigator.serviceWorker.addEventListener('controllerchange', reloadOnce);
+  }
   // Arranque sin tocar la pantalla: si el permiso de cámara ya se concedió en un uso
   // anterior, la guía empieza sola al abrir la app (por ejemplo, con "Ok Google, abre Paso Firme").
   window.addEventListener('load', async () => {
