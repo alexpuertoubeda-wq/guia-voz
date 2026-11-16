@@ -199,6 +199,7 @@ a:hover { text-decoration-thickness: .16em; }
 .contact { display: grid; gap: 1.2rem; justify-items: start; }
 .contact-box { font-size: 1.3rem; font-weight: 700; padding: 1rem 1.3rem; border-radius: 16px; background: var(--asphalt-2); border-left: 8px solid var(--tile); }
 footer { background: #17191d; padding-block: 2.5rem; color: var(--soft); font-size: 1rem; }
+footer a { color: var(--tile); }
 footer .wrap { display: grid; gap: .7rem; }
 footer strong { color: var(--paint); font-size: 1.3rem; }
 .zebra { height: 26px; background: repeating-linear-gradient(90deg, var(--paint) 0 46px, var(--asphalt-2) 46px 92px); }
@@ -442,31 +443,17 @@ footer strong { color: var(--paint); font-size: 1.3rem; }
       </div>
       <ul class="who">
         <li>
-          <!-- HUECO PARA FOTO 1 (persona ciega usando el móvil en la calle).
-               Para poner una foto real, sustituye el <svg> de dentro por:
-               <img src="foto-persona.jpg" alt="Descripción breve de la foto" width="800" height="600">
-               y guarda el archivo en esta carpeta web/. Mientras no haya foto se ve el pictograma. -->
-          <figure class="hueco-foto" aria-hidden="true">
-            <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><circle cx="52" cy="20" r="10" fill="currentColor" stroke="none"/><path d="M52 40v34M52 74 40 108M52 74l14 34M52 48l20 12"/><path d="M72 60l30 48" stroke-width="5"/></svg>
-          </figure>
+          <figure class="hueco-foto"><img src="foto-perro-guia.webp" alt="Hombre con gafas de sol camina por un paseo con bastón blanco y un perro guía." width="720" height="540" loading="lazy" decoding="async"></figure>
           <h3>Personas ciegas</h3>
           <p>Para caminar con más información sobre lo que hay delante, junto al bastón o al perro guía. Todo se oye y se maneja por voz.</p>
         </li>
         <li>
-          <!-- HUECO PARA FOTO 2 (familiar acompañando o ayudando a instalar la app).
-               Sustituye el <svg> por: <img src="foto-familia.jpg" alt="Descripción breve de la foto" width="800" height="600"> -->
-          <figure class="hueco-foto" aria-hidden="true">
-            <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><circle cx="40" cy="22" r="10" fill="currentColor" stroke="none"/><circle cx="82" cy="30" r="9" fill="currentColor" stroke="none"/><path d="M40 42v32M40 74 30 108M40 74l10 34M82 48v28M82 76l-8 32M82 76l8 32M40 52l21 8 21-6"/></svg>
-          </figure>
+          <figure class="hueco-foto"><img src="foto-movil-calle.webp" alt="Hombre mayor en una plaza mira su móvil con auriculares puestos." width="720" height="540" loading="lazy" decoding="async"></figure>
           <h3>Familias</h3>
           <p>Puedes instalarla tú en el móvil de tu familiar. Probadla juntos en un recorrido conocido antes de usarla a solas.</p>
         </li>
         <li>
-          <!-- HUECO PARA FOTO 3 (asociación, ayuntamiento, residencia o comercio).
-               Sustituye el <svg> por: <img src="foto-entidad.jpg" alt="Descripción breve de la foto" width="800" height="600"> -->
-          <figure class="hueco-foto" aria-hidden="true">
-            <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 106V44l42-26 42 26v62zM10 106h100"/><path d="M50 106V80h20v26"/><path d="M36 56h10M36 72h10M74 56h10M74 72h10" stroke-width="9"/></svg>
-          </figure>
+          <figure class="hueco-foto"><img src="foto-baston-baldosa.webp" alt="Bastón blanco tocando el pavimento podotáctil amarillo junto a un paso de peatones." width="720" height="540" loading="lazy" decoding="async"></figure>
           <h3>Asociaciones, ayuntamientos, residencias y comercios</h3>
           <p>Si queréis ofrecerla a las personas que atendéis o probarla en vuestros espacios, mirad la sección de contacto.</p>
         </li>
@@ -553,6 +540,7 @@ footer strong { color: var(--paint); font-size: 1.3rem; }
     <strong>Paso Firme</strong>
     <p>Prototipo en pruebas. Es una ayuda complementaria y no sustituye al bastón ni al perro guía.</p>
     <p>Tipografía Atkinson Hyperlegible, creada por el Braille Institute.</p>
+    <p>Fotos: <a href="https://www.freepik.com" rel="noopener">Designed by Freepik</a>.</p>
   </div>
 </footer>
 </body>
