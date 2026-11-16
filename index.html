@@ -657,19 +657,42 @@ async function readText() {
     say(e && e.name ? cameraError(e) : 'No he podido cargar el lector de textos. Comprueba la conexión.', 'urgent');
   } finally { endBusy(); }
 }
+// Lector de códigos: el del navegador si existe; si no, la librería jsQR alojada con la app.
+async function codeDetector() {
+  if ('BarcodeDetector' in window) {
+    try {
+      const det = new BarcodeDetector({ formats: ['qr_code'] });
+      return () => det.detect(video);
+    } catch (e) {}
+  }
+  if (!window.jsQR) {
+    await new Promise((ok, ko) => {
+      const s = document.createElement('script');
+      s.src = 'jsqr.js'; s.onload = ok; s.onerror = () => ko(new Error('jsqr'));
+      document.head.appendChild(s);
+    });
+  }
+  const c = document.createElement('canvas'), g = c.getContext('2d', { willReadFrequently: true });
+  return async () => {
+    const s = Math.min(1, 800 / Math.max(video.videoWidth, video.videoHeight));
+    c.width = Math.round(video.videoWidth * s); c.height = Math.round(video.videoHeight * s);
+    g.drawImage(video, 0, 0, c.width, c.height);
+    const r = window.jsQR(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+    return r && r.data ? [{ rawValue: r.data }] : [];
+  };
+}
 async function readCode() {
   if (busy) { say('Ya estoy leyendo. Di para si quieres que pare.', 'urgent'); return; }
-  if (!('BarcodeDetector' in window)) { say('Este navegador no puede leer códigos.', 'urgent'); return; }
   busy = 'codigo'; cancelBusy = false;
   try {
     await openCamera();
-    const det = new BarcodeDetector({ formats: ['qr_code'] });
+    const detect = await codeDetector();
     say('Busco un código. Mueve el móvil despacio delante de él.', 'urgent');
     const t0 = Date.now();
     let hint = Date.now();
     while (!cancelBusy && Date.now() - t0 < 30000) {
       let codes = [];
-      try { if (video.readyState >= 2) codes = await det.detect(video); } catch (e) {}
+      try { if (video.readyState >= 2) codes = await detect(); } catch (e) {}
       if (codes.length) {
         const c = codeText(codes[0].rawValue);
         pendingUrl = c.url;
@@ -683,7 +706,10 @@ async function readCode() {
       await wait(250);
     }
     if (!cancelBusy) say('No he encontrado ningún código.', 'urgent');
-  } catch (e) { console.error(e); say(cameraError(e), 'urgent'); }
+  } catch (e) {
+    console.error(e);
+    say(e && e.message === 'jsqr' ? 'No he podido cargar el lector de códigos. Comprueba la conexión.' : cameraError(e), 'urgent');
+  }
   finally { endBusy(); }
 }
 function help() {
