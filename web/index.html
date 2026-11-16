@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paso Firme: guía por voz para personas ciegas con la cámara del móvil</title>
+<meta name="description" content="Paso Firme es una app web en pruebas que avisa por voz de obstáculos, dice el color del semáforo y la calle en la que estás. Se instala desde Chrome en Android. No sustituye al bastón ni al perro guía.">
+<meta name="theme-color" content="#1e2126">
+<link rel="icon" href="icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* Identidad: pavimento podotáctil amarillo sobre asfalto. */
+:root {
+  --tile: #f5c518; --tile-deep: #d9a900; --tile-hi: #ffe270;
+  --asphalt: #1e2126; --asphalt-2: #2b2f36; --asphalt-3: #3a3f47;
+  --paint: #f4f4ef; --soft: #c9ccd1; --ink: #1b1a12;
+  --go: #1fa774; --halt: #d8392b;
+  --w: 1120px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 5rem; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--asphalt); color: var(--paint);
+  font-family: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 1.125rem; line-height: 1.55; overflow-x: hidden; }
+img, svg { max-width: 100%; display: block; }
+h1, h2, h3, p, ul, ol, dl, dd, figure, blockquote { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+h1, h2, h3 { line-height: 1.12; letter-spacing: -.015em; font-weight: 700; text-wrap: balance; }
+h1 { font-size: clamp(2.3rem, 5.4vw, 4.1rem); }
+h2 { font-size: clamp(1.8rem, 3.6vw, 2.7rem); }
+h3 { font-size: 1.3rem; line-height: 1.25; letter-spacing: 0; }
+a { color: var(--tile); text-underline-offset: .18em; text-decoration-thickness: .08em; }
+a:hover { text-decoration-thickness: .16em; }
+:focus-visible { outline: 3px solid var(--paint); outline-offset: 3px; box-shadow: 0 0 0 7px var(--asphalt); border-radius: 6px; }
+.wrap { width: min(100% - 2.5rem, var(--w)); margin-inline: auto; }
+.lead { font-size: clamp(1.15rem, 1.6vw, 1.35rem); color: var(--soft); max-width: 38em; }
+.band { padding-block: clamp(3.5rem, 8vw, 6.5rem); }
+.band-2 { background: var(--asphalt-2); }
+.head { display: grid; gap: 1rem; margin-bottom: clamp(2rem, 4vw, 3.25rem); max-width: 44rem; }
+
+.skip { position: absolute; left: 1rem; top: -6rem; z-index: 20; background: var(--tile); color: var(--ink);
+  padding: .7rem 1rem; border-radius: 10px; font-weight: 700; }
+.skip:focus { top: 1rem; }
+
+/* Cabecera */
+.top { position: sticky; top: 0; z-index: 10; background: var(--asphalt); border-bottom: 2px solid var(--asphalt-3); }
+.top .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1.5rem; padding-block: .6rem; }
+.brand { display: flex; align-items: center; gap: .65rem; color: var(--paint); text-decoration: none; font-weight: 700; font-size: 1.3rem; }
+.brand img { width: 40px; height: 40px; border-radius: 10px; }
+.top nav { margin-left: auto; }
+.top nav ul { display: flex; flex-wrap: wrap; align-items: center; gap: .1rem 1.3rem; }
+.top nav a { display: inline-block; padding: .45rem 0; color: var(--paint); text-decoration: none; font-size: 1.02rem; }
+.top nav a:hover { text-decoration: underline; text-decoration-color: var(--tile); text-decoration-thickness: .16em; }
+
+/* Botones: la baldosa de botones y el asfalto con franjas, como en la app */
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 3.25rem; padding: .55rem .7rem;
+  border-radius: 16px; font-weight: 700; font-size: 1.15rem; line-height: 1.2; text-decoration: none; text-align: center; }
+.btn-tile { color: var(--ink); background-color: var(--tile);
+  background-image: radial-gradient(circle at 50% 42%, var(--tile-hi) 0 5px, var(--tile-deep) 6px 8px, transparent 9px);
+  background-size: 26px 26px; background-position: center; box-shadow: inset 0 -4px 0 rgba(0,0,0,.2); }
+.btn-tile span { background: var(--tile); padding: .3em .85em; border-radius: 10px; }
+.btn-tile:hover span { text-decoration: underline; text-decoration-thickness: .12em; }
+.btn-road { color: var(--paint); background-color: var(--asphalt-2); padding-inline: 1.4rem;
+  background-image: repeating-linear-gradient(90deg, rgba(244,244,239,.09) 0 18px, transparent 18px 36px);
+  box-shadow: inset 0 0 0 2px rgba(244,244,239,.45); }
+.btn-road:hover { box-shadow: inset 0 0 0 3px var(--paint); }
+.top .btn { min-height: 2.75rem; font-size: 1rem; padding: .35rem .5rem; border-radius: 12px; }
+
+/* Portada */
+.hero { padding-block: clamp(2.5rem, 6vw, 5rem) clamp(3rem, 6vw, 5rem); }
+.hero .wrap { display: grid; gap: 3rem; align-items: center; }
+.hero-text { display: grid; gap: 1.5rem; justify-items: start; }
+.hero-text h1 { max-width: 13em; }
+.cta { display: flex; flex-wrap: wrap; gap: .9rem; }
+.notice { display: grid; grid-template-columns: auto 1fr; gap: .9rem; align-items: start; max-width: 36em;
+  padding: 1rem 1.1rem; border-radius: 14px; background: var(--asphalt-2); border-left: 8px solid var(--tile); }
+.notice svg { width: 30px; height: 30px; margin-top: .15rem; }
+.notice p { font-size: 1.08rem; }
+.notice a { font-weight: 700; }
+.rail { height: 46px; background: repeating-linear-gradient(0deg, var(--tile) 0 9px, var(--tile-deep) 9px 13px);
+  box-shadow: inset 0 3px 0 rgba(255,255,255,.25), inset 0 -4px 0 rgba(0,0,0,.25); }
+
+/* Móvil con la pantalla de la app */
+.phone-fig { justify-self: center; display: grid; gap: .9rem; justify-items: center; }
+.phone { width: 300px; height: 610px; padding: 12px; border-radius: 44px; background: #0c0d10;
+  box-shadow: 0 0 0 2px #50565f, 0 30px 60px rgba(0,0,0,.45); }
+.screen { height: 100%; border-radius: 32px; background: var(--asphalt); padding: 12px 9px 9px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.s-head { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
+.s-head img { width: 30px; height: 30px; border-radius: 8px; }
+.s-head b { font-size: 1.1rem; }
+.s-pill { margin-left: auto; font-size: .8rem; font-weight: 700; padding: .2rem .65rem; border-radius: 999px; background: var(--go); color: #04130d; }
+.s-btn { flex: 1; border-radius: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  font-weight: 700; font-size: 1.5rem; text-align: center; line-height: 1.15; }
+.s-btn svg { width: 52px; height: 52px; }
+.s-guide { background: var(--halt); color: #fff; box-shadow: inset 0 -6px 0 rgba(0,0,0,.18); }
+.s-talk { color: var(--paint); background-color: var(--asphalt-2);
+  background-image: repeating-linear-gradient(90deg, rgba(244,244,239,.09) 0 34px, transparent 34px 68px);
+  box-shadow: inset 0 0 0 2px rgba(244,244,239,.14); }
+.s-view { position: relative; height: 150px; border-radius: 16px; overflow: hidden; background: #000; }
+.s-view svg { width: 100%; height: 100%; }
+.s-view p { position: absolute; inset: auto 0 0 0; padding: 1.3rem .7rem .45rem; font-size: .86rem; line-height: 1.25;
+  background: linear-gradient(transparent, rgba(0,0,0,.9) 45%); }
+.phone-fig figcaption { color: var(--soft); font-size: 1rem; text-align: center; max-width: 20rem; }
+
+/* Lo que se oye */
+.heard { display: grid; gap: 1rem; }
+.heard li { position: relative; background: var(--paint); color: var(--ink); border-radius: 18px 18px 18px 4px;
+  padding: 1rem 1.15rem 1.05rem; font-size: 1.2rem; line-height: 1.35; font-weight: 700; }
+.heard small { display: block; font-size: .98rem; font-weight: 400; margin-top: .45rem; color: #3b3a33; }
+
+/* Pasos */
+.steps { position: relative; display: grid; gap: 2rem; counter-reset: paso; }
+.steps::before { content: ""; position: absolute; left: 21px; top: 10px; bottom: 10px; width: 14px;
+  background: repeating-linear-gradient(90deg, var(--tile) 0 4px, var(--tile-deep) 4px 7px); border-radius: 3px; }
+.steps li { position: relative; padding-left: 78px; counter-increment: paso; display: grid; gap: .45rem; align-content: start; }
+.steps li::before { content: counter(paso); position: absolute; left: 0; top: 0; width: 56px; height: 56px; border-radius: 12px;
+  display: grid; place-items: center; background: var(--tile); color: var(--ink); font-weight: 700; font-size: 1.7rem;
+  box-shadow: inset 0 -4px 0 rgba(0,0,0,.2), 0 0 0 5px var(--asphalt-2); }
+.steps p { color: var(--soft); }
+
+/* Qué detecta */
+.detect { display: grid; gap: 3rem; align-items: start; }
+.scene { background: var(--asphalt-2); border-radius: 22px; padding: 14px; display: grid; gap: 1rem; }
+.scene svg { width: 100%; height: auto; border-radius: 12px; }
+.legend { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem 1rem; padding: 0 .4rem; font-size: 1.02rem; }
+.legend li { display: flex; gap: .6rem; align-items: baseline; }
+.legend b { flex: none; width: 1.7rem; height: 1.7rem; border-radius: 50%; background: var(--paint); color: var(--ink);
+  display: inline-grid; place-items: center; font-size: 1rem; }
+.scene figcaption { padding: 0 .4rem .4rem; color: var(--soft); font-size: 1rem; }
+.feats { display: grid; gap: 0; }
+.feats > div { padding-block: 1.35rem; border-top: 2px solid var(--asphalt-3); display: grid; gap: .4rem; }
+.feats > div:first-child { border-top: 0; padding-top: 0; }
+.feats dt { font-weight: 700; font-size: 1.3rem; line-height: 1.25; color: var(--tile); }
+.feats dd { color: var(--paint); max-width: 34em; }
+
+/* Órdenes por voz: panel de asfalto con franjas, como el botón de abajo de la app */
+.voice { margin-top: clamp(2.5rem, 5vw, 4rem); border-radius: 26px; padding: clamp(1.4rem, 3vw, 2.4rem);
+  background-color: var(--asphalt-2); background-image: repeating-linear-gradient(90deg, rgba(244,244,239,.06) 0 46px, transparent 46px 92px);
+  box-shadow: inset 0 0 0 2px rgba(244,244,239,.16); display: grid; gap: 1.2rem; }
+.voice-h { display: flex; gap: .9rem; align-items: center; }
+.voice-h svg { width: 44px; height: 44px; flex: none; }
+.orders { display: flex; flex-wrap: wrap; gap: .6rem; }
+.orders li { background: var(--asphalt); border: 2px solid var(--tile); border-radius: 999px; padding: .35rem 1rem; font-weight: 700; }
+.voice p { max-width: 42em; }
+
+/* Próximamente */
+.soon { display: grid; gap: 1.5rem; }
+.soon li { border: 2px dashed #8f959e; border-radius: 20px; padding: 1.4rem; display: grid; gap: .6rem; align-content: start; }
+.tag { justify-self: start; font-size: .98rem; font-weight: 700; padding: .15rem .7rem; border-radius: 999px; background: var(--paint); color: var(--ink); }
+.soon p { color: var(--soft); }
+
+/* Para quién, con huecos para fotos */
+.who { display: grid; gap: 2.5rem; }
+.who li { display: grid; gap: .8rem; align-content: start; }
+.who p { color: var(--soft); }
+.hueco-foto { aspect-ratio: 4 / 3; border-radius: 20px; overflow: hidden; background: var(--tile); color: var(--ink);
+  display: grid; place-items: center; margin-bottom: .4rem; }
+.hueco-foto svg { width: 46%; height: auto; }
+.hueco-foto img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Instalar */
+.install { display: grid; gap: 3rem; align-items: start; }
+.install .steps::before { background: repeating-linear-gradient(90deg, var(--tile) 0 4px, var(--tile-deep) 4px 7px); }
+.install .steps li::before { box-shadow: inset 0 -4px 0 rgba(0,0,0,.2), 0 0 0 5px var(--asphalt); }
+.install .steps p { color: var(--paint); font-size: 1.2rem; padding-top: .7rem; }
+.install .steps q { font-weight: 700; }
+.menu > * { min-width: 0; }
+.menu { grid-template-columns: minmax(0, 1fr); justify-self: center; width: min(100%, 330px); background: var(--paint); color: var(--ink); border-radius: 18px; padding: .8rem; display: grid; gap: .55rem;
+  box-shadow: 0 20px 40px rgba(0,0,0,.4); }
+.menu-bar { display: flex; align-items: center; gap: .6rem; background: #dcdcd4; border-radius: 999px; padding: .45rem .5rem .45rem 1rem; font-size: .95rem; }
+.menu-bar span:first-child { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dots { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--tile); display: grid; place-items: center; box-shadow: 0 0 0 3px var(--ink); }
+.dots i, .dots i::before, .dots i::after { display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--ink); }
+.dots i { position: relative; }
+.dots i::before, .dots i::after { content: ""; position: absolute; left: 0; }
+.dots i::before { top: -8px; } .dots i::after { top: 8px; }
+.menu-line { height: 14px; border-radius: 7px; background: #cfcfc6; margin: .5rem .6rem; }
+.menu-pick { background: var(--tile); border-radius: 12px; padding: .7rem .8rem; font-weight: 700; display: flex; gap: .6rem; align-items: center; box-shadow: 0 0 0 3px var(--ink); }
+.menu-pick svg { width: 24px; height: 24px; flex: none; }
+.menu-fig { display: grid; gap: 1rem; }
+.menu-fig figcaption { color: var(--soft); font-size: 1rem; text-align: center; }
+
+/* Límites: una baldosa de botones, la que avisa de que hay que pararse */
+.limits { background-color: var(--tile); color: var(--ink);
+  background-image: radial-gradient(circle at 50% 42%, var(--tile-hi) 0 10px, var(--tile-deep) 11px 14px, transparent 15px);
+  background-size: 50px 50px; padding-block: clamp(2.5rem, 6vw, 5rem); }
+.limits-in { background: var(--tile); border-radius: 26px; padding: clamp(1.5rem, 4vw, 3rem); display: grid; gap: 1.5rem; box-shadow: 0 0 0 4px var(--ink); }
+.limits .lead { color: var(--ink); }
+.limits ul { display: grid; gap: 0; }
+.limits li { padding: 1rem 0 1rem 2.6rem; border-top: 3px solid var(--ink); font-size: clamp(1.2rem, 2vw, 1.45rem); line-height: 1.35; position: relative; max-width: 36em; }
+.limits li::before { content: ""; position: absolute; left: 0; top: 1.25rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--ink); }
+.limits li::after { content: ""; position: absolute; left: .35rem; top: 1.87rem; width: .8rem; height: .26rem; background: var(--tile); }
+.limits b { display: block; }
+.limits :focus-visible { outline-color: var(--ink); box-shadow: none; }
+
+/* Contacto y pie */
+.contact { display: grid; gap: 1.2rem; justify-items: start; }
+.contact-box { font-size: 1.3rem; font-weight: 700; padding: 1rem 1.3rem; border-radius: 16px; background: var(--asphalt-2); border-left: 8px solid var(--tile); }
+footer { background: #17191d; padding-block: 2.5rem; color: var(--soft); font-size: 1rem; }
+footer .wrap { display: grid; gap: .7rem; }
+footer strong { color: var(--paint); font-size: 1.3rem; }
+.zebra { height: 26px; background: repeating-linear-gradient(90deg, var(--paint) 0 46px, var(--asphalt-2) 46px 92px); }
+
+@media (min-width: 720px) {
+  .heard { grid-template-columns: 1fr 1fr; }
+  .soon { grid-template-columns: 1fr 1fr; }
+  .who { grid-template-columns: repeat(3, 1fr); gap: 2rem; }
+}
+@media (min-width: 960px) {
+  .hero .wrap { grid-template-columns: 1.25fr .75fr; gap: 4rem; }
+  .heard { grid-template-columns: repeat(4, 1fr); }
+  .heard li { font-size: 1.1rem; }
+  .how .steps { grid-template-columns: repeat(4, 1fr); gap: 2rem; }
+  .how .steps::before { left: 10px; right: 10px; top: 21px; bottom: auto; width: auto; height: 14px;
+    background: repeating-linear-gradient(0deg, var(--tile) 0 4px, var(--tile-deep) 4px 7px); }
+  .how .steps li { padding-left: 0; padding-top: 78px; }
+  .detect { grid-template-columns: 1fr 1fr; gap: 4rem; }
+  .install { grid-template-columns: 1.2fr .8fr; gap: 4rem; }
+}
+@media (max-width: 719px) {
+  .hueco-foto { aspect-ratio: 16 / 9; }
+  .hueco-foto svg { width: 30%; }
+  .top nav { margin-left: 0; width: 100%; order: 3; }
+  .top .wrap > .btn { margin-left: auto; }
+  .top { position: static; }
+  .top nav ul { gap: 0 1.1rem; }
+}
+@media (max-width: 420px) {
+  .legend { grid-template-columns: 1fr; }
+  .cta .btn { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#contenido">Saltar al contenido</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#inicio"><img src="icon-512.png" alt="" width="40" height="40">Paso Firme</a>
+    <nav aria-label="Secciones de la página">
+      <ul>
+        <li><a href="#como-funciona">Cómo funciona</a></li>
+        <li><a href="#que-detecta">Qué detecta</a></li>
+        <li><a href="#instalar">Instalar</a></li>
+        <li><a href="#limites">Límites</a></li>
+        <li><a href="#contacto">Contactar</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-tile" href="../"><span>Abrir la app</span></a>
+  </div>
+</header>
+
+<main id="contenido" tabindex="-1">
+
+  <section class="hero" id="inicio" aria-labelledby="t-inicio">
+    <div class="wrap">
+      <div class="hero-text">
+        <h1 id="t-inicio">Guía por voz para personas ciegas, con la cámara del móvil</h1>
+        <p class="lead">Paso Firme avisa de personas, coches, paredes y otros obstáculos que tienes delante. También dice de qué color está el semáforo y en qué calle estás. Se instala gratis desde Chrome en un móvil Android.</p>
+        <div class="cta">
+          <a class="btn btn-tile" href="../"><span>Abrir la app</span></a>
+          <a class="btn btn-road" href="#instalar">Cómo instalarla</a>
+        </div>
+        <div class="notice">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path fill="#f5c518" d="M16 2.5 31 28.5H1z"/><path fill="#1b1a12" d="M14.5 11h3l-.5 9h-2zM16 22a1.8 1.8 0 1 1 0 3.6A1.8 1.8 0 0 1 16 22z"/></svg>
+          <p>Está en fase de pruebas. Es una ayuda complementaria y no sustituye al bastón ni al perro guía. <a href="#limites">Lee sus límites</a> antes de usarla.</p>
+        </div>
+      </div>
+
+      <figure class="phone-fig">
+        <div class="phone" role="img" aria-label="Pantalla de Paso Firme con la guía activa. Arriba, un botón grande para parar la guía. En el centro, la imagen de la cámara con una persona y un banco recuadrados. Abajo, un botón grande para dar una orden por voz.">
+          <div class="screen" aria-hidden="true">
+            <div class="s-head"><img src="icon-512.png" alt="" width="30" height="30"><b>Paso Firme</b><span class="s-pill">Guía activa</span></div>
+            <div class="s-btn s-guide">
+              <svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h12v12H6z"/></svg>
+              <span>Parar guía</span>
+            </div>
+            <div class="s-view">
+              <svg viewBox="0 0 260 150" preserveAspectRatio="xMidYMid slice">
+                <rect width="260" height="150" fill="#3c4856"/>
+                <path d="M0 0h92l18 62L0 112z" fill="#262b33"/><path d="M260 0h-92l-18 62 110 50z" fill="#2f353e"/>
+                <path d="M22 30h22v26H22zM58 38h16v20H58zM212 28h24v28h-24zM184 38h15v20h-15z" fill="#e9c46a" opacity=".35"/>
+                <path d="M0 150v-38l110-50h40l110 50v38z" fill="#565c65"/>
+                <path d="M108 150h44l-17-88h-10z" fill="#f5c518"/>
+                <path d="M111 136h38M115 118h30M119 102h22M122 88h16M124 76h12" stroke="#d9a900" stroke-width="2"/>
+                <g fill="#d8dadd"><circle cx="130" cy="60" r="8"/><path d="M118 73a6 6 0 0 1 6-6h12a6 6 0 0 1 6 6v30h-5v27h-5v-25h-4v25h-5v-27h-5z"/></g>
+                <g fill="#a5825a"><rect x="188" y="97" width="50" height="6" rx="2"/><rect x="188" y="84" width="50" height="5" rx="2"/><path d="M192 103h4v15h-4zM230 103h4v15h-4z"/></g>
+                <g fill="none" stroke="#ffd60a" stroke-width="2.5"><rect x="110" y="47" width="40" height="86"/><rect x="183" y="79" width="60" height="42"/></g>
+                <g fill="#ffd60a" font-family="system-ui, sans-serif" font-weight="700" font-size="11"><text x="96" y="41">persona 2.0 m</text><text x="176" y="73">banco 4.1 m</text></g>
+              </svg>
+              <p>Persona delante, a 2 metros. Banco a la derecha, a 4 metros.</p>
+            </div>
+            <div class="s-btn s-talk">
+              <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.500v-6a3.500 3.500 0 0 0-7 0v6A3.500 3.500 0 0 0 12 15zm6-3.500a6 6 0 0 1-12 0H4.500a7.500 7.500 0 0 0 6.750 7.460V22h1.500v-3.040A7.500 7.500 0 0 0 19.500 11.500z"/></svg>
+              <span>Dar una orden<br>por voz</span>
+            </div>
+          </div>
+        </div>
+        <figcaption>La app tiene dos botones grandes: uno inicia o para la guía y el otro escucha tu orden.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <div class="rail" aria-hidden="true"></div>
+
+  <section class="band band-2" aria-labelledby="t-oyes">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="t-oyes">Esto es lo que oyes</h2>
+        <p class="lead">Son avisos reales de la app. Cada uno dice qué hay, dónde está y a qué distancia aproximada.</p>
+      </div>
+      <ul class="heard">
+        <li>«Persona delante, a 2 metros. Banco a la derecha, a 4 metros.»<small>Mientras caminas</small></li>
+        <li>«Para. Obstáculo delante, muy cerca. Hay más espacio a la izquierda.»<small>Ante una pared o una puerta</small></li>
+        <li>«Semáforo en verde, confirma antes de cruzar.»<small>Al ver un semáforo</small></li>
+        <li>«Camino libre. Puedes seguir despacio.»<small>Cuando el paso se despeja</small></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band band-2 how" id="como-funciona" aria-labelledby="t-como" style="padding-top:0">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="t-como">Cómo funciona</h2>
+      </div>
+      <ol class="steps">
+        <li><h3>Abre la app</h3><p>Toca su icono en la pantalla de inicio o pídeselo al asistente del móvil.</p></li>
+        <li><h3>Inicia la guía</h3><p>Pulsa el botón grande de arriba o di «inicia la guía».</p></li>
+        <li><h3>Apunta hacia delante</h3><p>Sujeta el móvil con la cámara mirando hacia delante.</p></li>
+        <li><h3>Escucha los avisos</h3><p>La voz te dice qué hay y por dónde pasar. Si duda, te pide que pares.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="band" id="que-detecta" aria-labelledby="t-que">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="t-que">Qué detecta hoy</h2>
+        <p class="lead">La cámara reparte lo que ve en tres zonas: izquierda, delante y derecha. Así sabes hacia qué lado está cada cosa.</p>
+      </div>
+      <div class="detect">
+        <figure class="scene">
+          <svg viewBox="0 0 600 600" role="img" aria-labelledby="esc-t esc-d">
+            <title id="esc-t">Esquema de una calle vista desde arriba</title>
+            <desc id="esc-d">Una persona camina por la acera sobre la franja de baldosas amarillas hacia un paso de peatones. La cámara de su móvil abre un abanico dividido en tres zonas. En la zona izquierda hay una bicicleta, delante otra persona, a la derecha un banco y, junto al bordillo, un semáforo.</desc>
+            <rect width="600" height="600" fill="#4a5059"/>
+            <g stroke="#40454d" stroke-width="2"><path d="M0 320h600M0 390h600M0 460h600M0 530h600M150 250v350M300 250v350M450 250v350"/></g>
+            <rect width="600" height="52" fill="#4a5059"/><rect y="52" width="600" height="10" fill="#8d939b"/>
+            <rect y="62" width="600" height="176" fill="#1e2126"/>
+            <path d="M0 150h200M400 150h200" stroke="#f4f4ef" stroke-width="5" stroke-dasharray="34 26" opacity=".7"/>
+            <g fill="#f4f4ef"><rect x="222" y="74" width="156" height="20"/><rect x="222" y="108" width="156" height="20"/><rect x="222" y="142" width="156" height="20"/><rect x="222" y="176" width="156" height="20"/><rect x="222" y="208" width="156" height="20"/></g>
+            <rect y="238" width="600" height="12" fill="#8d939b"/>
+            <rect x="0" y="250" width="78" height="350" fill="#17191d"/><rect x="78" y="400" width="6" height="56" fill="#a5825a"/>
+            <rect x="276" y="300" width="48" height="300" fill="#f5c518"/>
+            <g stroke="#d9a900" stroke-width="4"><path d="M286 300v300M296 300v300M306 300v300M316 300v300"/></g>
+            <rect x="222" y="250" width="156" height="50" fill="#f5c518"/>
+            <g fill="#d9a900"><circle cx="236" cy="263" r="5"/><circle cx="256" cy="263" r="5"/><circle cx="276" cy="263" r="5"/><circle cx="296" cy="263" r="5"/><circle cx="316" cy="263" r="5"/><circle cx="336" cy="263" r="5"/><circle cx="356" cy="263" r="5"/><circle cx="236" cy="286" r="5"/><circle cx="256" cy="286" r="5"/><circle cx="276" cy="286" r="5"/><circle cx="296" cy="286" r="5"/><circle cx="316" cy="286" r="5"/><circle cx="336" cy="286" r="5"/><circle cx="356" cy="286" r="5"/></g>
+            <circle cx="520" cy="500" r="42" fill="#2f6b4f"/><circle cx="520" cy="500" r="26" fill="#3d8563"/>
+            <!-- Abanico de la cámara: vértice en (300,520), ±40 grados, radio 290 -->
+            <path d="M300 520 114 298A290 290 0 0 1 486 298z" fill="#f4f4ef" opacity=".2"/>
+            <path d="M300 520 114 298A290 290 0 0 1 486 298z" fill="none" stroke="#f4f4ef" stroke-width="3"/>
+            <path d="M300 520 233 238M300 520 367 238" stroke="#f4f4ef" stroke-width="3" stroke-dasharray="9 8"/>
+            <!-- Bicicleta (izquierda) -->
+            <g transform="translate(205 372) rotate(-20)" fill="none" stroke="#1b1a12" stroke-width="6" stroke-linecap="round"><path d="M0-32v64M-13-15h26"/><path d="M-7 5h14" stroke-width="8"/></g>
+            <!-- Persona (delante) -->
+            <g transform="translate(300 384)" fill="#1b1a12" stroke="#f4f4ef" stroke-width="2.500"><rect x="-12" y="-8" width="24" height="36" rx="11"/><circle cy="-20" r="10"/></g>
+            <!-- Banco (derecha) -->
+            <g transform="translate(392 372)"><rect x="-13" y="-32" width="26" height="64" rx="3" fill="#a5825a" stroke="#1b1a12" stroke-width="3"/><path d="M-4-32v64M5-32v64" stroke="#1b1a12" stroke-width="2"/></g>
+            <!-- Semáforo -->
+            <g transform="translate(416 276)"><rect x="-11" y="-24" width="22" height="48" rx="6" fill="#1b1a12" stroke="#f4f4ef" stroke-width="2"/><circle cy="-14" r="5" fill="#d8392b"/><circle r="5" fill="#5a5f67"/><circle cy="14" r="5" fill="#5a5f67"/></g>
+            <!-- Quien lleva el móvil -->
+            <g transform="translate(300 548)" fill="#f4f4ef" stroke="#1b1a12" stroke-width="3"><rect x="-14" y="-8" width="28" height="42" rx="13"/><circle cy="-22" r="12"/></g>
+            <!-- Zonas -->
+            <g font-family="'Atkinson Hyperlegible', system-ui, sans-serif" font-weight="700" font-size="24" text-anchor="middle" fill="#f4f4ef">
+              <g stroke="#f4f4ef" stroke-width="2" fill="#1b1a12"><rect x="96" y="196" width="126" height="40" rx="20"/><rect x="248" y="196" width="104" height="40" rx="20"/><rect x="380" y="196" width="120" height="40" rx="20"/></g>
+              <text x="159" y="224">izquierda</text><text x="300" y="224">delante</text><text x="440" y="224">derecha</text>
+            </g>
+            <!-- Números -->
+            <g font-family="'Atkinson Hyperlegible', system-ui, sans-serif" font-weight="700" font-size="26" text-anchor="middle" fill="#1b1a12">
+              <g fill="#f4f4ef" stroke="#1b1a12" stroke-width="2"><circle cx="300" cy="328" r="20"/><circle cx="442" cy="372" r="20"/><circle cx="160" cy="356" r="20"/><circle cx="462" cy="276" r="20"/></g>
+              <text x="300" y="337">1</text><text x="442" y="381">2</text><text x="160" y="365">3</text><text x="462" y="285">4</text>
+            </g>
+          </svg>
+          <ol class="legend">
+            <li><b aria-hidden="true">1</b><span>Persona, delante</span></li>
+            <li><b aria-hidden="true">2</b><span>Banco, a la derecha</span></li>
+            <li><b aria-hidden="true">3</b><span>Bicicleta, a la izquierda</span></li>
+            <li><b aria-hidden="true">4</b><span>Semáforo en rojo</span></li>
+          </ol>
+          <figcaption>El dibujo es un esquema. La app no detecta el paso de peatones ni el bordillo.</figcaption>
+        </figure>
+
+        <dl class="feats">
+          <div><dt>Objetos con nombre</dt><dd>Personas, coches, motos, bicicletas, autobuses, bancos, sillas, mesas y semáforos, entre otros. De cada uno dice la posición y la distancia aproximada.</dd></div>
+          <div><dt>Paredes, puertas y superficies cercanas</dt><dd>Un medidor de profundidad detecta lo que tienes cerca aunque no sepa nombrarlo. Ante la duda ordena «Para» y después indica por dónde hay más espacio.</dd></div>
+          <div><dt>El color del semáforo</dt><dd>Dice si la luz está en rojo, ámbar o verde. Nunca dice que se puede cruzar.</dd></div>
+          <div><dt>Dónde estás</dt><dd>Di «dónde estoy» y te dice la calle, el número y la localidad.</dd></div>
+          <div><dt>Las imágenes no salen del móvil</dt><dd>La cámara se analiza en el propio teléfono y sus imágenes no se envían a ningún servidor. Para decirte la calle, la app consulta tu posición en el mapa de OpenStreetMap.</dd></div>
+        </dl>
+      </div>
+
+      <div class="voice">
+        <div class="voice-h">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#f4f4ef" d="M12 15a3.500 3.500 0 0 0 3.500-3.500v-6a3.500 3.500 0 0 0-7 0v6A3.500 3.500 0 0 0 12 15zm6-3.500a6 6 0 0 1-12 0H4.500a7.500 7.500 0 0 0 6.750 7.460V22h1.500v-3.040A7.500 7.500 0 0 0 19.500 11.500z"/></svg>
+          <h3>Se maneja por voz</h3>
+        </div>
+        <p>Pulsa el botón de abajo y di una de estas órdenes. También puedes abrir la app con el asistente del móvil.</p>
+        <ul class="orders">
+          <li>«Inicia la guía»</li><li>«Para»</li><li>«Dónde estoy»</li><li>«Qué hay delante»</li><li>«Repite»</li><li>«Ayuda»</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="band band-2" aria-labelledby="t-prox">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="t-prox">En desarrollo</h2>
+        <p class="lead">Estas dos funciones todavía no están en la app. Estamos trabajando en ellas.</p>
+      </div>
+      <ul class="soon">
+        <li><span class="tag">Próximamente</span><h3>Leer en voz alta</h3><p>Periódicos, cartas y carteles, apuntando la cámara al texto.</p></li>
+        <li><span class="tag">Próximamente</span><h3>Guiar hasta un sitio</h3><p>Con órdenes como «llévame a la farmacia más cercana».</p></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band" id="para-quien" aria-labelledby="t-quien">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="t-quien">Para quién es</h2>
+      </div>
+      <ul class="who">
+        <li>
+          <!-- HUECO PARA FOTO 1 (persona ciega usando el móvil en la calle).
+               Para poner una foto real, sustituye el <svg> de dentro por:
+               <img src="foto-persona.jpg" alt="Descripción breve de la foto" width="800" height="600">
+               y guarda el archivo en esta carpeta web/. Mientras no haya foto se ve el pictograma. -->
+          <figure class="hueco-foto" aria-hidden="true">
+            <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><circle cx="52" cy="20" r="10" fill="currentColor" stroke="none"/><path d="M52 40v34M52 74 40 108M52 74l14 34M52 48l20 12"/><path d="M72 60l30 48" stroke-width="5"/></svg>
+          </figure>
+          <h3>Personas ciegas</h3>
+          <p>Para caminar con más información sobre lo que hay delante, junto al bastón o al perro guía. Todo se oye y se maneja por voz.</p>
+        </li>
+        <li>
+          <!-- HUECO PARA FOTO 2 (familiar acompañando o ayudando a instalar la app).
+               Sustituye el <svg> por: <img src="foto-familia.jpg" alt="Descripción breve de la foto" width="800" height="600"> -->
+          <figure class="hueco-foto" aria-hidden="true">
+            <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><circle cx="40" cy="22" r="10" fill="currentColor" stroke="none"/><circle cx="82" cy="30" r="9" fill="currentColor" stroke="none"/><path d="M40 42v32M40 74 30 108M40 74l10 34M82 48v28M82 76l-8 32M82 76l8 32M40 52l21 8 21-6"/></svg>
+          </figure>
+          <h3>Familias</h3>
+          <p>Puedes instalarla tú en el móvil de tu familiar. Probadla juntos en un recorrido conocido antes de usarla a solas.</p>
+        </li>
+        <li>
+          <!-- HUECO PARA FOTO 3 (asociación, ayuntamiento, residencia o comercio).
+               Sustituye el <svg> por: <img src="foto-entidad.jpg" alt="Descripción breve de la foto" width="800" height="600"> -->
+          <figure class="hueco-foto" aria-hidden="true">
+            <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 106V44l42-26 42 26v62zM10 106h100"/><path d="M50 106V80h20v26"/><path d="M36 56h10M36 72h10M74 56h10M74 72h10" stroke-width="9"/></svg>
+          </figure>
+          <h3>Asociaciones, ayuntamientos, residencias y comercios</h3>
+          <p>Si queréis ofrecerla a las personas que atendéis o probarla en vuestros espacios, mirad la sección de contacto.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band band-2" id="instalar" aria-labelledby="t-inst">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="t-inst">Cómo instalarla en Android</h2>
+        <p class="lead">No está en las tiendas de aplicaciones. Se instala desde el navegador Chrome y no cuesta nada.</p>
+      </div>
+      <div class="install">
+        <ol class="steps">
+          <li><p>Abre <a href="../">la página de la app</a> en Chrome, en el móvil Android.</p></li>
+          <li><p>Toca el menú de tres puntos, arriba a la derecha.</p></li>
+          <li><p>Elige <q>Añadir a pantalla de inicio</q> o <q>Instalar aplicación</q>.</p></li>
+          <li><p>Abre Paso Firme desde su icono y acepta los permisos de cámara, micrófono y ubicación cuando los pida.</p></li>
+        </ol>
+        <figure class="menu-fig">
+          <div class="menu" aria-hidden="true">
+            <div class="menu-bar"><span>…github.io/guia-voz</span><span class="dots"><i></i></span></div>
+            <div class="menu-line" style="width:52%"></div>
+            <div class="menu-line" style="width:68%"></div>
+            <div class="menu-pick"><svg viewBox="0 0 24 24"><path fill="#1b1a12" d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 3v14h10V5zm4 3h2v3h3v2h-3v3h-2v-3H8v-2h3z"/></svg>Añadir a pantalla de inicio</div>
+            <div class="menu-line" style="width:44%"></div>
+          </div>
+          <figcaption>El menú de Chrome se abre con los tres puntos. El texto de la opción cambia según la versión.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="limits" id="limites" aria-labelledby="t-lim">
+    <div class="wrap">
+      <div class="limits-in">
+        <h2 id="t-lim">Límites y seguridad</h2>
+        <p class="lead">Lee esto antes de usarla o de recomendarla.</p>
+        <ul>
+          <li><b>Es una ayuda complementaria.</b> No sustituye al bastón ni al perro guía.</li>
+          <li><b>No detecta escalones, bordillos, baches ni pasos de peatones.</b></li>
+          <li><b>Las distancias son aproximadas.</b> Se calculan a partir de la imagen de la cámara.</li>
+          <li><b>No dice cuándo cruzar.</b> Solo dice el color de la luz del semáforo que detecta.</li>
+          <li><b>Está en fase de pruebas.</b> Puede equivocarse o no ver un obstáculo.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="contacto" aria-labelledby="t-cont">
+    <div class="wrap contact">
+      <h2 id="t-cont">Contacto</h2>
+      <p class="lead">Para entidades que quieran ofrecer Paso Firme y para cualquier consulta sobre la app.</p>
+      <p class="contact-box">Contacto disponible próximamente</p>
+      <a class="btn btn-tile" href="../"><span>Abrir la app</span></a>
+    </div>
+  </section>
+</main>
+
+<div class="zebra" aria-hidden="true"></div>
+<footer>
+  <div class="wrap">
+    <strong>Paso Firme</strong>
+    <p>Prototipo en pruebas. Es una ayuda complementaria y no sustituye al bastón ni al perro guía.</p>
+    <p>Tipografía Atkinson Hyperlegible, creada por el Braille Institute.</p>
+  </div>
+</footer>
+</body>
+</html>
