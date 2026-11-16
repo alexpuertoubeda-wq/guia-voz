@@ -155,15 +155,16 @@ let locatedOnce = false;
 // ---------- Voz ----------
 // mode: 'urgent' corta lo que se esté diciendo; 'queue' espera su turno;
 // 'skip' no dice nada si ya se está hablando.
-function say(text, mode) {
+function say(text, mode, onDone) {
   const synth = window.speechSynthesis;
   statusEl.textContent = text;
-  if (!synth) return false;
+  if (!synth) { if (onDone) onDone(); return false; }
   if (mode === 'urgent') synth.cancel();
   else if (mode === 'skip' && (synth.speaking || synth.pending)) return false;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'es-ES';
-  u.rate = 1.1;
+  u.rate = 1.05;
+  if (onDone) { let once = false; const fin = () => { if (!once) { once = true; onDone(); } }; u.onend = fin; u.onerror = fin; }
   synth.speak(u);
   lastSaid = text;
   return true;
@@ -345,7 +346,7 @@ function announce(objs) {
   }
   if (stopped) {
     stopped = false; lastSummary = now;
-    say(dec.warn ? 'Hay algo de espacio. Avanza muy despacio.' : 'Camino libre. Puedes seguir despacio.', 'urgent');
+    say(dec.warn ? 'Hay algo de espacio. Avanza muy despacio.' : 'Camino libre' + hi() + '. Puedes seguir despacio.', 'urgent');
     return;
   }
   if (dec.warn && now - lastWarn > 4000) {
@@ -487,7 +488,7 @@ async function start() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       say('Este navegador no permite usar la cámara.', 'urgent'); return;
     }
-    say('Preparando la guía. Espera.', 'urgent');
+    say('Preparo la guía. Espera un momento.', 'urgent');
     // La cámara se pide primero, mientras el toque del usuario sigue siendo reciente.
     await openCamera();
     if (!model) {
@@ -498,8 +499,8 @@ async function start() {
     running = true;
     setGuideUI(true);
     buzz(80); tones([[523, 0.12], [784, 0.18]]);
-    say('Guía activada. Lleva el móvil a la altura del pecho, con la cámara hacia delante. ' +
-        'Usa siempre tu bastón o tu perro guía: no detecto escalones, bordillos, baches ni pasos de peatones. Si digo para, detente.', 'urgent');
+    say('Guía activada' + hi() + '. Lleva el móvil a la altura del pecho, mirando al frente. ' +
+        'Usa siempre tu bastón o tu perro guía. No veo escalones, bordillos ni baches. Si digo para, detente.', 'urgent');
     if (!locatedOnce) { locatedOnce = true; whereAmI(); }
     loop();
     loadDepth();
@@ -528,7 +529,7 @@ function stop() {
   stopCamera();
   setGuideUI(false);
   buzz(80); tones([[784, 0.12], [523, 0.18]]);
-  say('Guía parada.', 'urgent');
+  say('Guía parada' + hi() + '.', 'urgent');
 }
 
 // ---------- Ubicación ----------
@@ -566,7 +567,75 @@ function placeText(j, accuracy) {
 
 // ---------- Órdenes por voz ----------
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-function listen() {
+// ---------- Bienvenida, nombre y opciones ----------
+function loadName() { try { return localStorage.getItem('pf-nombre') || ''; } catch (e) { return ''; } }
+function saveName(n) { try { localStorage.setItem('pf-nombre', n); } catch (e) {} }
+let userName = loadName(), pendingName = '', nameTries = 0, onboarding = false, skippedName = false, askMode = null;
+function notHeard(mode) {
+  return mode === 'name' || mode === 'confirm' ? 'No te he oído. Toca la parte de abajo de la pantalla y respóndeme.'
+                                               : 'No te he oído. Toca la parte de abajo de la pantalla y repite.';
+}
+// "me llamo Juan Carlos" -> "Juan". Solo el nombre de pila. PURA.
+function extractName(text) {
+  let t = String(text || '').trim().toLowerCase()
+    .replace(/^(hola[, ]*)?(pues |bueno |vale )?/, '')
+    .replace(/^(me llamo|mi nombre es|soy|llámame|llamame|me llaman|yo soy)\s+/, '')
+    .replace(/[^a-záéíóúüñ\s-]/g, ' ').trim();
+  const w = t.split(/\s+/)[0] || '';
+  if (w.length < 2 || w.length > 20) return '';
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+function isYes(text) { const t = ' ' + norm(text).replace(/[^a-z| ]/g, ' ') + ' '; return / (si|correcto|exacto|vale|eso es|claro|afirmativo) /.test(t); }
+function isNo(text) { const t = ' ' + norm(text).replace(/[^a-z| ]/g, ' ') + ' '; return / (no|incorrecto|negativo|mal) /.test(t); }
+function hi() { return userName ? ', ' + userName : ''; }
+function askName() {
+  nameTries++;
+  ask(nameTries === 1 ? 'Hola. Soy Paso Firme, tu guía por voz. ¿Cómo te llamas? Dime solo tu nombre.'
+                      : 'Perdona, no lo he entendido. Dime solo tu nombre.', 'name');
+}
+function onName(text) {
+  const n = extractName(text);
+  if (!n) {
+    if (nameTries < 3) { askName(); return; }
+    nameTries = 0; onboarding = false; skippedName = true;
+    say('No pasa nada. Cuando quieras, di: cambia mi nombre.', 'urgent', () => options(true));
+    return;
+  }
+  pendingName = n;
+  ask('¿Te llamas ' + n + '? Di sí o no.', 'confirm');
+}
+function onConfirm(text) {
+  if (isYes(text) && !isNo(text.replace(/\bno\b.*$/, ''))) {
+    userName = pendingName; saveName(userName); nameTries = 0; onboarding = false; skippedName = false;
+    say('Encantado, ' + userName + '.', 'urgent', () => options(true));
+  } else if (isNo(text)) { nameTries = 0; askName(); }
+  else ask('No te he entendido. ¿Te llamas ' + pendingName + '? Di sí o no.', 'confirm');
+}
+const OPTIONS_TEXT = 'Esto es lo que puedo hacer. ' +
+  'Para caminar, di: inicia la guía. Te aviso de obstáculos y te digo cuándo parar. ' +
+  'Para saber dónde estás, di: dónde estoy. ' +
+  'Para ir a un sitio, di: llévame a la farmacia más cercana, o el nombre del sitio. ' +
+  'Para leer una carta o un periódico, di: lee esto. ' +
+  'Para un código QR, di: lee el código. ' +
+  'Para que pare cualquier cosa, di: para. ' +
+  'Para oír esto otra vez, di: opciones. ' +
+  'Para hablarme, toca la parte de abajo de la pantalla.';
+function options(thenAsk) {
+  if (thenAsk) ask(OPTIONS_TEXT + ' ¿Qué quieres hacer' + hi() + '?', null);
+  else say(OPTIONS_TEXT, 'urgent');
+}
+// Primer contacto: si no sabe el nombre, lo pregunta. Devuelve true si el toque ya está atendido.
+function welcome() {
+  if (userName || skippedName) return false;
+  if (onboarding) { if (!listening) listen(askMode); return true; }
+  onboarding = true; nameTries = 0; askName();
+  return true;
+}
+function onTalkTap() { if (welcome()) return; listen(); }
+// Pregunta y escucha la respuesta sin que haga falta tocar la pantalla.
+function ask(text, mode) { askMode = mode; say(text, 'urgent', () => setTimeout(() => listen(mode), 250)); }
+function listen(mode) {
+  if (typeof mode !== 'string') mode = null;
   if (!SR) { say('Este navegador no admite órdenes por voz. Usa Chrome.', 'urgent'); return; }
   if (listening) return;
   if (window.speechSynthesis) window.speechSynthesis.cancel();
@@ -579,14 +648,17 @@ function listen() {
     got = true;
     const alts = [];
     for (let i = 0; i < e.results[0].length; i++) alts.push(e.results[0][i].transcript);
-    handle(alts.join(' | '));
+    const heard = alts.join(' | ');
+    if (mode === 'name') onName(alts[0] || '');
+    else if (mode === 'confirm') onConfirm(heard);
+    else handle(heard);
   };
   rec.onerror = e => {
     got = true;
     say(e.error === 'not-allowed' || e.error === 'service-not-allowed'
-      ? 'No tengo permiso para usar el micrófono.' : 'No te he oído. Pulsa abajo y repite la orden.', 'urgent');
+      ? 'No tengo permiso para usar el micrófono.' : notHeard(mode), 'urgent');
   };
-  rec.onend = () => { listening = false; btnTalk.classList.remove('listening'); if (!got) say('No te he oído. Pulsa abajo y repite la orden.', 'urgent'); };
+  rec.onend = () => { listening = false; btnTalk.classList.remove('listening'); if (!got) say(notHeard(mode), 'urgent'); };
   listening = true; btnTalk.classList.add('listening');
   buzz(60); tones([[880, 0.08]]);
   statusEl.textContent = 'Escuchando…';
@@ -603,7 +675,9 @@ function command(text) {
   if (has('codigo', 'qr', 'cu erre')) return 'code';
   if (has('lee', 'leer', 'leeme', 'lee esto', 'texto', 'periodico', 'carta', 'cartel')) return 'read';
   if (has('abre', 'abrir', 'abrela')) return 'open';
-  if (has('siguiente', 'otro sitio', 'otra opcion')) return 'next';
+  if (has('cambia mi nombre', 'cambiar mi nombre', 'cambia el nombre', 'mi nombre')) return 'rename';
+  if (has('opciones', 'menu', 'que puedes hacer', 'que sabes hacer')) return 'options';
+  if (has('siguiente', 'otro sitio')) return 'next';
   if (has('cuanto falta', 'cuanto queda', 'distancia')) return 'remaining';
   if (has('cancela', 'cancelar', 'anula')) return 'cancel';
   if (has('repite', 'otra vez', 'repetir')) return 'repeat';
@@ -617,6 +691,8 @@ function handle(text) {
   const cmd = command(text);
   if (nav && !busy && (cmd === 'stop' || cmd === 'cancel')) { stopRoute(); say('Ruta cancelada. Di para otra vez si quieres parar también la guía.', 'urgent'); return; }
   switch (cmd) {
+    case 'rename': onboarding = true; nameTries = 0; askName(); break;
+    case 'options': options(false); break;
     case 'next': nextPlace(); break;
     case 'remaining':
       say(nav && nav.last && nav.last.distanciaRestante != null ? 'Quedan unos ' + PFRutas.formatearDistancia(nav.last.distanciaRestante) + '.' :
@@ -799,16 +875,15 @@ function stopRoute() {
   if (navWatch !== null) navigator.geolocation.clearWatch(navWatch);
   navWatch = null; nav = null;
 }
-function help() {
-  say('Botón de arriba: iniciar o parar la guía. Botón de abajo: dar una orden. ' +
-      'Órdenes: inicia la guía, para, dónde estoy, qué hay delante, lee esto, lee el código, repite y ayuda. ' +
-      'Para ir a un sitio di, por ejemplo, llévame a la farmacia más cercana, o llévame a la calle Mayor 5. Durante la ruta: cuánto falta, siguiente sitio y cancela la ruta.', 'urgent');
-}
+function help() { options(false); }
 
 // ---------- Arranque ----------
 if (typeof document !== 'undefined' && btnGuide) {
-  btnGuide.addEventListener('click', () => running ? stop() : start());
-  btnTalk.addEventListener('click', listen);
+  btnGuide.addEventListener('click', () => { if (welcome()) return; running ? stop() : start(); });
+  btnTalk.addEventListener('click', onTalkTap);
+  // La zona de la cámara y la cabecera también sirven para hablar: un toque en cualquier sitio.
+  document.getElementById('view').addEventListener('click', onTalkTap);
+  document.querySelector('header').addEventListener('click', onTalkTap);
   window.addEventListener('deviceorientation', e => { tiltBeta = typeof e.beta === 'number' ? e.beta : null; });
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible' && running && navigator.wakeLock && !wakeLock) {
@@ -833,7 +908,9 @@ if (typeof document !== 'undefined' && btnGuide) {
   window.addEventListener('load', async () => {
     try {
       const p = await navigator.permissions.query({ name: 'camera' });
-      if (p.state === 'granted') start();
+      if (p.state === 'granted' && userName) start();
+      else statusEl.textContent = userName ? 'Hola, ' + userName + '. Toca arriba para iniciar la guía o abajo para hablarme.'
+                                          : 'Toca la pantalla en cualquier sitio para empezar.';
     } catch (e) {}
   });
 }

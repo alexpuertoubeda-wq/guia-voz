@@ -145,9 +145,9 @@ a:hover { text-decoration-thickness: .16em; }
 .orders li { background: var(--asphalt); border: 2px solid var(--tile); border-radius: 999px; padding: .35rem 1rem; font-weight: 700; }
 .voice p { max-width: 42em; }
 
-/* Próximamente */
+/* Leer y llegar */
 .soon { display: grid; gap: 1.5rem; }
-.soon li { border: 2px dashed #8f959e; border-radius: 20px; padding: 1.4rem; display: grid; gap: .6rem; align-content: start; }
+.soon li { border: 2px solid #8f959e; border-radius: 20px; padding: 1.4rem; display: grid; gap: .6rem; align-content: start; }
 .tag { justify-self: start; font-size: .98rem; font-weight: 700; padding: .15rem .7rem; border-radius: 999px; background: var(--paint); color: var(--ink); }
 .soon p { color: var(--soft); }
 
@@ -205,7 +205,7 @@ footer strong { color: var(--paint); font-size: 1.3rem; }
 
 @media (min-width: 720px) {
   .heard { grid-template-columns: 1fr 1fr; }
-  .soon { grid-template-columns: 1fr 1fr; }
+  .soon { grid-template-columns: repeat(3, 1fr); }
   .who { grid-template-columns: repeat(3, 1fr); gap: 2rem; }
 }
 @media (min-width: 960px) {
@@ -232,6 +232,12 @@ footer strong { color: var(--paint); font-size: 1.3rem; }
   .cta .btn { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  .contact-list { list-style: none; margin: 0 0 1.6rem; padding: 0; display: grid; gap: .7rem; max-width: 34rem; }
+  .contact-list a { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem 1rem; padding: .9rem 1.1rem;
+    border-radius: 16px; background: #2b2f36; color: #f4f4ef; text-decoration: none; border: 2px solid transparent; }
+  .contact-list a:hover { border-color: #f5c518; }
+  .contact-list .c-label { color: #c9ccd1; min-width: 6.5rem; }
+  .contact-list .c-val { font-weight: 700; font-size: 1.2rem; overflow-wrap: anywhere; color: #f5c518; }
 </style>
 </head>
 <body>
@@ -398,7 +404,7 @@ footer strong { color: var(--paint); font-size: 1.3rem; }
           <div><dt>Paredes, puertas y superficies cercanas</dt><dd>Un medidor de profundidad detecta lo que tienes cerca aunque no sepa nombrarlo. Ante la duda ordena «Para» y después indica por dónde hay más espacio.</dd></div>
           <div><dt>El color del semáforo</dt><dd>Dice si la luz está en rojo, ámbar o verde. Nunca dice que se puede cruzar.</dd></div>
           <div><dt>Dónde estás</dt><dd>Di «dónde estoy» y te dice la calle, el número y la localidad.</dd></div>
-          <div><dt>Las imágenes no salen del móvil</dt><dd>La cámara se analiza en el propio teléfono y sus imágenes no se envían a ningún servidor. Para decirte la calle, la app consulta tu posición en el mapa de OpenStreetMap.</dd></div>
+          <div><dt>Las imágenes no salen del móvil</dt><dd>La cámara se analiza en el propio teléfono y sus imágenes no se envían a ningún servidor. Para decirte la calle o llevarte a un sitio, la app consulta tu posición en los mapas de OpenStreetMap.</dd></div>
         </dl>
       </div>
 
@@ -407,9 +413,9 @@ footer strong { color: var(--paint); font-size: 1.3rem; }
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#f4f4ef" d="M12 15a3.500 3.500 0 0 0 3.500-3.500v-6a3.500 3.500 0 0 0-7 0v6A3.500 3.500 0 0 0 12 15zm6-3.500a6 6 0 0 1-12 0H4.500a7.500 7.500 0 0 0 6.750 7.460V22h1.500v-3.040A7.500 7.500 0 0 0 19.500 11.500z"/></svg>
           <h3>Se maneja por voz</h3>
         </div>
-        <p>Pulsa el botón de abajo y di una de estas órdenes. También puedes abrir la app con el asistente del móvil.</p>
+        <p>La primera vez, la app te pregunta tu nombre y te cuenta lo que puede hacer. Después, toca la parte de abajo de la pantalla y di lo que necesitas.</p>
         <ul class="orders">
-          <li>«Inicia la guía»</li><li>«Para»</li><li>«Dónde estoy»</li><li>«Qué hay delante»</li><li>«Repite»</li><li>«Ayuda»</li>
+          <li>«Inicia la guía»</li><li>«Para»</li><li>«Dónde estoy»</li><li>«Qué hay delante»</li><li>«Lee esto»</li><li>«Lee el código»</li><li>«Llévame a…»</li><li>«Opciones»</li>
         </ul>
       </div>
     </div>
@@ -418,12 +424,13 @@ footer strong { color: var(--paint); font-size: 1.3rem; }
   <section class="band band-2" aria-labelledby="t-prox">
     <div class="wrap">
       <div class="head">
-        <h2 id="t-prox">En desarrollo</h2>
-        <p class="lead">Estas dos funciones todavía no están en la app. Estamos trabajando en ellas.</p>
+        <h2 id="t-prox">Leer y llegar</h2>
+        <p class="lead">Tres funciones más para el día a día. Como el resto de la app, están en fase de pruebas.</p>
       </div>
       <ul class="soon">
-        <li><span class="tag">Próximamente</span><h3>Leer en voz alta</h3><p>Periódicos, cartas y carteles, apuntando la cámara al texto.</p></li>
-        <li><span class="tag">Próximamente</span><h3>Guiar hasta un sitio</h3><p>Con órdenes como «llévame a la farmacia más cercana».</p></li>
+        <li><span class="tag">Di «lee esto»</span><h3>Leer en voz alta</h3><p>Periódicos, cartas y carteles. La app te dice cómo mover el móvil hasta que el texto queda bien encuadrado y después lo lee tal cual está escrito.</p></li>
+        <li><span class="tag">Di «lee el código»</span><h3>Códigos QR</h3><p>Lee el texto que lleva el código. Si es una página web, te dice de cuál se trata y la abre si se lo pides.</p></li>
+        <li><span class="tag">Di «llévame a…»</span><h3>Guiar hasta un sitio</h3><p>«Llévame a la farmacia más cercana», a un bar o a una dirección. Te avisa antes de cada giro y te recuerda comprobar el tráfico al cruzar.</p></li>
       </ul>
     </div>
   </section>
@@ -514,7 +521,11 @@ footer strong { color: var(--paint); font-size: 1.3rem; }
     <div class="wrap contact">
       <h2 id="t-cont">Contacto</h2>
       <p class="lead">Para entidades que quieran ofrecer Paso Firme y para cualquier consulta sobre la app.</p>
-      <p class="contact-box">Contacto disponible próximamente</p>
+      <ul class="contact-list">
+        <li><a href="https://wa.me/34640529716" rel="noopener"><span class="c-label">WhatsApp</span> <span class="c-val">640 52 97 16</span></a></li>
+        <li><a href="tel:+34640529716"><span class="c-label">Teléfono</span> <span class="c-val">640 52 97 16</span></a></li>
+        <li><a href="mailto:alex.puertoubeda@gmail.com"><span class="c-label">Correo</span> <span class="c-val">alex.puertoubeda@gmail.com</span></a></li>
+      </ul>
       <a class="btn btn-tile" href="../"><span>Abrir la app</span></a>
     </div>
   </section>
