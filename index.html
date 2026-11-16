@@ -8,35 +8,72 @@
 <meta name="theme-color" content="#0b1220">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
 <style>
+  /* Identidad: el pavimento podotáctil amarillo de las aceras, sobre asfalto. */
+  :root { --tile: #f5c518; --tile-deep: #d9a900; --asphalt: #1e2126; --asphalt-2: #2b2f36;
+    --paint: #f4f4ef; --go: #1fa774; --halt: #d8392b; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #0b1220; color: #fff;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
-  #cam, #ov { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  #cam { opacity: .55; }
-  main { position: fixed; inset: 0; display: flex; flex-direction: column; }
-  button { flex: 1; border: 0; margin: 0; font: inherit; font-size: 2.2rem; font-weight: 700;
-    color: #fff; background: rgba(11,18,32,.45); touch-action: manipulation; }
-  #btnGuide { border-bottom: 4px solid #ffd60a; }
-  #btnGuide[aria-pressed="true"] { background: rgba(190,30,45,.45); }
-  button:active { background: rgba(255,214,10,.35); }
-  button:focus-visible { outline: 6px solid #ffd60a; outline-offset: -6px; }
-  #diag { position: fixed; left: 0; right: 0; top: 0; margin: 0; padding: .3rem .6rem; font-size: .9rem;
-    background: rgba(0,0,0,.7); pointer-events: none; text-align: center; }
-  #status { position: fixed; left: 0; right: 0; top: 50%; transform: translateY(-50%);
-    margin: 0; padding: .6rem 1rem; text-align: center; font-size: 1.15rem;
-    background: rgba(0,0,0,.75); pointer-events: none; min-height: 2.6rem; }
+  html, body { margin: 0; height: 100%; background: var(--asphalt); color: var(--paint);
+    font-family: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  body { display: flex; flex-direction: column; padding: 10px; gap: 10px; }
+  header { display: flex; align-items: center; gap: 10px; padding: 2px 4px; }
+  header img { width: 38px; height: 38px; border-radius: 10px; }
+  header h1 { margin: 0; font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
+  #pill { margin-left: auto; font-size: .9rem; padding: .3rem .75rem; border-radius: 999px;
+    background: var(--asphalt-2); color: var(--paint); }
+  #pill.on { background: var(--go); color: #04130d; font-weight: 700; }
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  button { flex: 1; min-height: 0; border: 0; margin: 0; font: inherit; font-weight: 700; font-size: 1.9rem;
+    border-radius: 26px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; transition: transform .08s ease; }
+  button svg { width: 64px; height: 64px; }
+  button:active { transform: scale(.98); }
+  button:focus-visible { outline: 5px solid var(--paint); outline-offset: 3px; }
+  /* Botón de arriba: una baldosa podotáctil, con sus botones en relieve. */
+  #btnGuide { color: #1b1a12; background-color: var(--tile);
+    background-image: radial-gradient(circle at 50% 42%, #ffe270 0 9px, var(--tile-deep) 10px 13px, transparent 14px);
+    background-size: 46px 46px; box-shadow: inset 0 -6px 0 rgba(0,0,0,.18); }
+  #btnGuide span { background: var(--tile); padding: .15em .6em; border-radius: 14px; }
+  #btnGuide svg { background: var(--tile); border-radius: 50%; padding: 8px; width: 80px; height: 80px; }
+  #btnGuide[aria-pressed="true"] { background: var(--halt); color: #fff; }
+  #btnGuide[aria-pressed="true"] span, #btnGuide[aria-pressed="true"] svg { background: transparent; }
+  /* Botón de abajo: asfalto con las franjas de un paso de peatones. */
+  #btnTalk { color: var(--paint); background-color: var(--asphalt-2);
+    background-image: repeating-linear-gradient(90deg, rgba(244,244,239,.09) 0 34px, transparent 34px 68px);
+    box-shadow: inset 0 0 0 2px rgba(244,244,239,.14); }
+  #btnTalk.listening { background-color: #14467a; }
+  #view { position: relative; height: 24vh; min-height: 120px; border-radius: 20px; overflow: hidden; background: #000; }
+  #cam, #ov { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #status { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: .55rem .9rem; font-size: 1.05rem;
+    line-height: 1.3; background: linear-gradient(transparent, rgba(0,0,0,.85) 35%); pointer-events: none; }
+  #diag { margin: 0; font-size: .72rem; color: #9aa0a8; text-align: center; min-height: 1em; }
+  @media (prefers-reduced-motion: reduce) { button { transition: none; } }
 </style>
 </head>
 <body>
-<video id="cam" playsinline muted aria-hidden="true"></video>
-<canvas id="ov" aria-hidden="true"></canvas>
+<header>
+  <img src="icon-192.png" alt="">
+  <h1>Paso Firme</h1>
+  <span id="pill" aria-hidden="true">Guía parada</span>
+</header>
 <main>
-  <button id="btnGuide" aria-pressed="false">Iniciar guía</button>
-  <button id="btnTalk">Dar una orden por voz</button>
+  <button id="btnGuide" aria-pressed="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path id="icoGuide" fill="currentColor" d="M8 5v14l11-7z"/></svg>
+    <span id="lblGuide">Iniciar guía</span>
+  </button>
+  <div id="view" aria-hidden="true">
+    <video id="cam" playsinline muted></video>
+    <canvas id="ov"></canvas>
+    <p id="status">Arriba, iniciar la guía. Abajo, dar una orden.</p>
+  </div>
+  <button id="btnTalk">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 0 0-7 0v6A3.5 3.5 0 0 0 12 15zm6-3.5a6 6 0 0 1-12 0H4.5a7.5 7.5 0 0 0 6.75 7.46V22h1.5v-3.04A7.5 7.5 0 0 0 19.500 11.500z"/></svg>
+    <span>Dar una orden por voz</span>
+  </button>
 </main>
 <p id="diag" aria-hidden="true"></p>
-<p id="status" aria-hidden="true">Paso Firme. Arriba: iniciar guía. Abajo: dar una orden.</p>
 
 <script src="tf.min.js"></script>
 <script src="coco-ssd.min.js"></script>
@@ -69,6 +106,30 @@ const btnGuide = document.getElementById('btnGuide');
 const btnTalk = document.getElementById('btnTalk');
 const statusEl = document.getElementById('status');
 const diagEl = document.getElementById('diag');
+const pillEl = document.getElementById('pill');
+function setGuideUI(on) {
+  btnGuide.setAttribute('aria-pressed', on ? 'true' : 'false');
+  document.getElementById('lblGuide').textContent = on ? 'Parar guía' : 'Iniciar guía';
+  document.getElementById('icoGuide').setAttribute('d', on ? 'M6 6h12v12H6z' : 'M8 5v14l11-7z');
+  pillEl.textContent = on ? 'Guía activa' : 'Guía parada';
+  pillEl.classList.toggle('on', on);
+}
+// Señales sonoras breves: se distinguen de la voz y se oyen aunque esté hablando.
+let actx = null;
+function tones(seq) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    let t = actx.currentTime;
+    for (const [freq, dur] of seq) {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = freq; o.type = 'sine';
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur + 0.02);
+      t += dur + 0.03;
+    }
+  } catch (e) {}
+}
 let model = null, stream = null, running = false, starting = false, listening = false;
 let wakeLock = null, lastSaid = '', lastUrgent = 0, lastSummary = 0, lastClear = 0;
 let seen = [];           // últimas detecciones procesadas
@@ -226,7 +287,7 @@ function announce(objs) {
   if (dec.stop) {
     if (now - lastUrgent > 3500) {
       lastUrgent = now; lastSummary = now;
-      buzz([250, 100, 250]);
+      buzz([250, 100, 250]); tones([[330, 0.16], [330, 0.16]]);
       say(dec.text, 'urgent');
     }
     stopped = true;
@@ -369,9 +430,8 @@ async function start() {
     }
     try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
     running = true;
-    btnGuide.setAttribute('aria-pressed', 'true');
-    btnGuide.textContent = 'Parar guía';
-    buzz(80);
+    setGuideUI(true);
+    buzz(80); tones([[523, 0.12], [784, 0.18]]);
     say('Guía activada. Lleva el móvil a la altura del pecho, con la cámara hacia delante. ' +
         'Usa siempre tu bastón o tu perro guía: no detecto escalones, bordillos, baches ni pasos de peatones. Si digo para, detente.', 'urgent');
     if (!locatedOnce) { locatedOnce = true; whereAmI(); }
@@ -398,9 +458,8 @@ function stop() {
   seen = [];
   stopped = false;
   stopCamera();
-  btnGuide.setAttribute('aria-pressed', 'false');
-  btnGuide.textContent = 'Iniciar guía';
-  buzz(80);
+  setGuideUI(false);
+  buzz(80); tones([[784, 0.12], [523, 0.18]]);
   say('Guía parada.', 'urgent');
 }
 
@@ -459,11 +518,11 @@ function listen() {
     say(e.error === 'not-allowed' || e.error === 'service-not-allowed'
       ? 'No tengo permiso para usar el micrófono.' : 'No te he oído. Pulsa abajo y repite la orden.', 'urgent');
   };
-  rec.onend = () => { listening = false; if (!got) say('No te he oído. Pulsa abajo y repite la orden.', 'urgent'); };
-  listening = true;
-  buzz(60);
+  rec.onend = () => { listening = false; btnTalk.classList.remove('listening'); if (!got) say('No te he oído. Pulsa abajo y repite la orden.', 'urgent'); };
+  listening = true; btnTalk.classList.add('listening');
+  buzz(60); tones([[880, 0.08]]);
   statusEl.textContent = 'Escuchando…';
-  try { rec.start(); } catch (e) { listening = false; }
+  try { rec.start(); } catch (e) { listening = false; btnTalk.classList.remove('listening'); }
 }
 function norm(s) { return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
 function command(text) {
@@ -489,7 +548,7 @@ function handle(text) {
   }
 }
 function help() {
-  say('Mitad superior de la pantalla: iniciar o parar la guía. Mitad inferior: dar una orden. ' +
+  say('Botón de arriba: iniciar o parar la guía. Botón de abajo: dar una orden. ' +
       'Órdenes: inicia la guía, para, dónde estoy, qué hay delante, repite y ayuda.', 'urgent');
 }
 
@@ -506,13 +565,14 @@ if (typeof document !== 'undefined' && btnGuide) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
     // El service worker añade las cabeceras que permiten al medidor de profundidad usar varios núcleos.
     // Hace falta recargar una vez para que surtan efecto.
-    const reloadOnce = () => {
+    const reloadIfNeeded = () => {
       try {
-        if (!self.crossOriginIsolated && !sessionStorage.getItem('pf-coi')) { sessionStorage.setItem('pf-coi', '1'); location.reload(); }
+        const n = +(sessionStorage.getItem('pf-coi') || 0);
+        if (!self.crossOriginIsolated && !running && n < 2) { sessionStorage.setItem('pf-coi', String(n + 1)); location.reload(); }
       } catch (e) {}
     };
-    if (navigator.serviceWorker.controller) reloadOnce();
-    else navigator.serviceWorker.addEventListener('controllerchange', reloadOnce);
+    if (navigator.serviceWorker.controller) reloadIfNeeded();
+    navigator.serviceWorker.addEventListener('controllerchange', reloadIfNeeded);
   }
   // Arranque sin tocar la pantalla: si el permiso de cámara ya se concedió en un uso
   // anterior, la guía empieza sola al abrir la app (por ejemplo, con "Ok Google, abre Paso Firme").
