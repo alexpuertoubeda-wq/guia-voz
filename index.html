@@ -21,6 +21,8 @@
   #btnGuide[aria-pressed="true"] { background: rgba(190,30,45,.45); }
   button:active { background: rgba(255,214,10,.35); }
   button:focus-visible { outline: 6px solid #ffd60a; outline-offset: -6px; }
+  #diag { position: fixed; left: 0; right: 0; top: 0; margin: 0; padding: .3rem .6rem; font-size: .9rem;
+    background: rgba(0,0,0,.7); pointer-events: none; text-align: center; }
   #status { position: fixed; left: 0; right: 0; top: 50%; transform: translateY(-50%);
     margin: 0; padding: .6rem 1rem; text-align: center; font-size: 1.15rem;
     background: rgba(0,0,0,.75); pointer-events: none; min-height: 2.6rem; }
@@ -33,6 +35,7 @@
   <button id="btnGuide" aria-pressed="false">Iniciar guía</button>
   <button id="btnTalk">Dar una orden por voz</button>
 </main>
+<p id="diag" aria-hidden="true"></p>
 <p id="status" aria-hidden="true">Paso Firme. Arriba: iniciar guía. Abajo: dar una orden.</p>
 
 <script src="tf.min.js"></script>
@@ -65,9 +68,13 @@ const ctx = canvas.getContext('2d');
 const btnGuide = document.getElementById('btnGuide');
 const btnTalk = document.getElementById('btnTalk');
 const statusEl = document.getElementById('status');
+const diagEl = document.getElementById('diag');
 let model = null, stream = null, running = false, starting = false, listening = false;
 let wakeLock = null, lastSaid = '', lastUrgent = 0, lastSummary = 0, lastClear = 0;
 let seen = [];           // últimas detecciones procesadas
+let modelBase = 'mobilenet_v2'; // el más preciso; si va lento se cambia al ligero
+let slowFrames = 0, switching = false;
+const MIN_SCORE = 0.3;
 let locatedOnce = false;
 
 // ---------- Voz ----------
@@ -102,7 +109,10 @@ function estimateDistance(cls, bbox, vw, vh) {
   const focal = (vh / 2) / Math.tan(vfov / 2);
   // Si el objeto llena la imagen de arriba abajo, está encima.
   if (y <= vh * 0.02 && y + h >= vh * 0.98) return 0.8;
-  return OBJ[cls][1] * focal / h;
+  const d = OBJ[cls][1] * focal / h;
+  // Un objeto que ocupa casi media imagen está cerca aunque se vea cortado.
+  if (bbox[2] * h >= vw * vh * 0.45) return Math.min(d, 1);
+  return d;
 }
 function zoneOf(bbox, vw) {
   const cx = (bbox[0] + bbox[2] / 2) / vw;
@@ -123,7 +133,7 @@ function advice(objs) {
   return 'Detente.';
 }
 function describeText(objs) {
-  if (!objs.length) return 'No detecto obstáculos conocidos delante.';
+  if (!objs.length) return 'No detecto ningún objeto conocido. Recuerda que todavía no reconozco paredes ni puertas.';
   return objs.slice(0, 4).map(o => o.name + ' ' + ZONE_TXT[o.zone] + ', ' + metros(o.dist)).join('. ') + '.';
 }
 
@@ -168,11 +178,25 @@ async function loop() {
   while (running) {
     if (video.readyState >= 2 && video.videoWidth) {
       try {
-        const preds = await model.detect(video, 12, 0.5);
+        const t0 = performance.now();
+        const preds = await model.detect(video, 20, MIN_SCORE);
+        const ms = Math.round(performance.now() - t0);
         if (!running) break;
         seen = process(preds, video.videoWidth, video.videoHeight);
         draw(seen);
+        diagEl.textContent = seen.length + (seen.length === 1 ? ' objeto' : ' objetos') + ' · ' + ms + ' ms · ' +
+          (modelBase === 'mobilenet_v2' ? 'modelo preciso' : 'modelo ligero');
         announce(seen);
+        // Si cada imagen tarda más de 1,5 s, el aviso llegaría tarde: se pasa al modelo ligero.
+        if (modelBase === 'mobilenet_v2' && !switching) {
+          slowFrames = ms > 1500 ? slowFrames + 1 : 0;
+          if (slowFrames >= 4) {
+            switching = true;
+            try { const lite = await cocoSsd.load({ base: 'lite_mobilenet_v2' }); model = lite; modelBase = 'lite_mobilenet_v2'; }
+            catch (e) { console.error(e); }
+            switching = false; slowFrames = 0;
+          }
+        }
       } catch (e) { console.error(e); }
     }
     await new Promise(r => setTimeout(r, 300));
@@ -194,7 +218,10 @@ async function start() {
     });
     video.srcObject = stream;
     await video.play();
-    if (!model) model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+    if (!model) {
+      try { model = await cocoSsd.load({ base: modelBase }); }
+      catch (e) { modelBase = 'lite_mobilenet_v2'; model = await cocoSsd.load({ base: modelBase }); }
+    }
     try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
     running = true;
     btnGuide.setAttribute('aria-pressed', 'true');

@@ -1,5 +1,5 @@
 // Paso Firme: caché mínima para que la app sea instalable y abra sin conexión.
-const CACHE = 'paso-firme-v1';
+const CACHE = 'paso-firme-v2';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'tf.min.js', 'coco-ssd.min.js'];
 
 self.addEventListener('install', e => {
