@@ -230,7 +230,7 @@ function makeVoice(engine, now, setT, clearT) {
     state() { return { cur: cur && cur.text, queued: q.map(x => x.text) }; }
   };
 }
-let utterRef = null, esVoice = null;
+let utterRef = null, esVoice = null, voiceWorks = false;
 const speechEngine = {
   speak(text, onend) {
     const synth = window.speechSynthesis;
@@ -243,6 +243,7 @@ const speechEngine = {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'es-ES'; u.rate = 1.05;
     if (esVoice) u.voice = esVoice;
+    u.onstart = () => { voiceWorks = true; };
     u.onend = onend; u.onerror = onend;
     utterRef = u;   // se guarda la referencia: si no, Chrome puede descartarla y no avisar del final
     synth.speak(u);
@@ -504,6 +505,20 @@ async function loadDepth() {
     say('No he podido cargar el detector de paredes. Solo reconoceré objetos conocidos.', 'queue');
   } finally { depthLoading = false; }
 }
+let depthChain = Promise.resolve();
+function measureDepth() {
+  const run = async () => {
+    const vw = video.videoWidth, vh = video.videoHeight, s = 160 / Math.max(vw, vh);
+    wc.width = Math.round(vw * s); wc.height = Math.round(vh * s);
+    wctx.drawImage(video, 0, 0, wc.width, wc.height);
+    const out = await depthPipe(depthT.RawImage.fromCanvas(wc));
+    const pd = out.predicted_depth, dims = pd.dims;
+    return analyzeDepth(pd.data, dims[dims.length - 1], dims[dims.length - 2]);
+  };
+  const p = depthChain.then(run, run);
+  depthChain = p.catch(() => {});
+  return p;
+}
 async function depthLoop() {
   if (depthLooping) return;
   depthLooping = true;
@@ -513,13 +528,9 @@ async function depthLoop() {
     if (busy) { await wait(300); depth.ts = Date.now(); continue; }
     if (video.readyState >= 2 && video.videoWidth) {
       try {
-        const vw = video.videoWidth, vh = video.videoHeight, s = 160 / Math.max(vw, vh);
-        wc.width = Math.round(vw * s); wc.height = Math.round(vh * s);
-        wctx.drawImage(video, 0, 0, wc.width, wc.height);
         const t0 = performance.now();
-        const out = await depthPipe(depthT.RawImage.fromCanvas(wc));
-        const pd = out.predicted_depth, dims = pd.dims;
-        const a = analyzeDepth(pd.data, dims[dims.length - 1], dims[dims.length - 2]);
+        const a = await measureDepth();
+        if (busy || !running) continue;
         dHist.push(a); if (dHist.length > 3) dHist.shift();
         const sm = k => median(dHist.map(x => x[k]));
         const C = sm('C'), flat = dHist.length === 3 && dHist.every(x => x.flat);
@@ -611,14 +622,15 @@ function cameraError(e) {
   return denied ? 'No tengo permiso para usar la cámara. Actívalo en los ajustes del navegador.'
                 : 'No he podido usar la cámara. Vuelve a intentarlo.';
 }
-async function start() {
+async function start(fromRoute) {
   if (running || starting) return;
+  const mode = fromRoute === true ? 'queue' : 'urgent';
   starting = true;
   try {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       say('Este navegador no permite usar la cámara.', 'urgent'); return;
     }
-    say('Preparo la guía. Espera un momento.', 'urgent');
+    if (mode === 'urgent') say('Preparo la guía. Espera un momento.', 'urgent');
     // La cámara se pide primero, mientras el toque del usuario sigue siendo reciente.
     await openCamera();
     if (!model) {
@@ -629,10 +641,11 @@ async function start() {
     running = true;
     setGuideUI(true);
     buzz(80); tones([[523, 0.12], [784, 0.18]]);
-    say('Guía activada' + hi() + '. Lleva el móvil a la altura del pecho, mirando al frente. ' +
-        'Usa siempre tu bastón o tu perro guía. No veo escalones, bordillos ni baches. Si digo para, detente.', 'urgent', () => { introUntil = 0; });
+    say(mode === 'queue' ? 'Aviso de obstáculos activado. Lleva el móvil a la altura del pecho, mirando al frente. Si digo para, detente.'
+      : 'Guía activada' + hi() + '. Lleva el móvil a la altura del pecho, mirando al frente. ' +
+        'Usa siempre tu bastón o tu perro guía. No veo escalones, bordillos ni baches. Si digo para, detente.', mode, () => { introUntil = 0; });
     introUntil = Date.now() + 15000;
-    if (!locatedOnce) { locatedOnce = true; whereAmI(); }
+    if (!locatedOnce && mode === 'urgent') { locatedOnce = true; whereAmI(); }
     loop();
     loadDepth();
   } catch (e) {
@@ -664,9 +677,9 @@ function stop() {
 }
 
 // ---------- Ubicación ----------
-async function whereAmI() {
-  if (!navigator.geolocation) { say('Este móvil no ofrece ubicación.', 'queue'); return; }
-  say('Buscando tu ubicación.', 'queue');
+async function whereAmI(asked) {
+  if (!navigator.geolocation) { say('Este móvil no ofrece ubicación.', asked ? 'urgent' : 'queue'); return; }
+  say('Buscando tu ubicación.', asked ? 'urgent' : 'queue');
   try {
     const pos = await new Promise((ok, ko) => navigator.geolocation.getCurrentPosition(ok, ko,
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }));
@@ -796,25 +809,34 @@ function listen(mode) {
   try { rec.start(); } catch (e) { listening = false; btnTalk.classList.remove('listening'); flushDeferred(); }
 }
 function norm(s) { return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+// El reconocedor da varias alternativas separadas por "|": se prueba cada una por separado.
 function command(text) {
-  const t = ' ' + norm(text).replace(/[^a-z0-9| ]/g, ' ').replace(/\s+/g, ' ') + ' ';
-  const has = (...w) => w.some(x => t.includes(' ' + x + ' ') || (x.includes(' ') && t.includes(x)));
-  if (has('donde estoy', 'ubicacion', 'calle', 'donde me encuentro')) return 'where';
-  if (has('para', 'parar', 'parate', 'detente', 'deten', 'stop', 'termina', 'apaga')) return 'stop';
-  if (has('que hay', 'describe', 'que ves', 'que tengo delante')) return 'describe';
-  if (has('empieza', 'inicia', 'iniciar', 'comienza', 'vamos', 'guiame', 'activa', 'guia')) return 'start';
-  if (has('codigo', 'qr', 'cu erre')) return 'code';
-  if (has('lee', 'leer', 'leeme', 'lee esto', 'texto', 'periodico', 'carta', 'cartel')) return 'read';
-  if (has('abre', 'abrir', 'abrela')) return 'open';
-  if (has('cambia mi nombre', 'cambiar mi nombre', 'cambia el nombre', 'mi nombre')) return 'rename';
+  for (const alt of String(text || '').split('|')) { const c = command1(alt); if (c) return c; }
+  return null;
+}
+function command1(text) {
+  const t = ' ' + norm(text).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+  const has = (...w) => w.some(x => t.includes(' ' + x + ' '));
+  const words = t.trim() ? t.trim().split(' ').length : 0;
+  // Parar va primero, pero "para" solo cuenta como orden en frases cortas que empiezan por ella
+  // ("para", "para ya", "para la guía"): en "cuánto falta para llegar" es otra cosa.
+  if (has('parar', 'parate', 'detente', 'deten', 'stop', 'basta', 'silencio', 'callate', 'calla', 'termina', 'apaga', 'apagar', 'desactiva')) return 'stop';
+  if (t.startsWith(' para ') && words <= 4) return 'stop';
+  if (has('cuanto falta', 'cuanto queda', 'cuanta distancia')) return 'remaining';
+  if (has('cancela', 'cancelar', 'anula', 'anular')) return 'cancel';
+  if (has('siguiente', 'otro sitio')) return 'next';
+  if (has('cambia mi nombre', 'cambiar mi nombre', 'cambia el nombre', 'cambiar el nombre')) return 'rename';
   if (has('calibra', 'calibrar', 'calibracion')) return 'calibrate';
   if (has('diagnostico', 'informe')) return 'report';
   if (has('opciones', 'menu', 'que puedes hacer', 'que sabes hacer')) return 'options';
-  if (has('siguiente', 'otro sitio')) return 'next';
-  if (has('cuanto falta', 'cuanto queda', 'distancia')) return 'remaining';
-  if (has('cancela', 'cancelar', 'anula')) return 'cancel';
-  if (has('repite', 'otra vez', 'repetir')) return 'repeat';
+  if (has('codigo', 'qr')) return 'code';
+  if (has('lee', 'leer', 'leeme', 'leelo', 'leemelo', 'lectura')) return 'read';
+  if (has('abre', 'abrir', 'abrela', 'abrelo')) return 'open';
+  if (has('donde estoy', 'donde me encuentro', 'mi ubicacion', 'que calle es', 'en que calle')) return 'where';
+  if (has('que hay', 'describe', 'que ves', 'que tengo delante')) return 'describe';
+  if (has('repite', 'repetir', 'repitelo', 'otra vez')) return 'repeat';
   if (has('ayuda', 'ordenes', 'instrucciones')) return 'help';
+  if (has('empieza', 'inicia', 'iniciar', 'comienza', 'vamos', 'guiame', 'activa', 'activar', 'guia')) return 'start';
   return null;
 }
 function handle(text) {
@@ -829,7 +851,7 @@ function handle(text) {
     case 'calibrate': calibrate(); break;
     case 'report': {
       const el = document.getElementById('rep');
-      el.textContent = reportText(diagLog, 'parada ' + THR.stop.toFixed(2) + ' · objetos ' + modelBase + ' · aislado ' + (self.crossOriginIsolated ? 'sí' : 'no') + '\n' + navigator.userAgent.slice(0, 110)) + '\n\nToca aquí para cerrar.';
+      el.textContent = reportText(diagLog, 'parada ' + THR.stop.toFixed(2) + ' · objetos ' + modelBase + ' · aislado ' + (self.crossOriginIsolated ? 'sí' : 'no') + ' · gpu ' + (navigator.gpu ? 'sí' : 'no') + ' · núcleos ' + (navigator.hardwareConcurrency || '?') + ' · voz ' + (voiceWorks ? 'sí' : 'no') + '\n' + navigator.userAgent.slice(0, 110)) + '\n\nToca aquí para cerrar.';
       el.hidden = false;
       say('Informe en pantalla. Haz una captura y envíala.', 'urgent');
       break;
@@ -840,10 +862,10 @@ function handle(text) {
         nav ? 'Todavía no sé cuánto falta. Espera a que el GPS me sitúe.' : 'No hay ninguna ruta en marcha.', 'urgent');
       break;
     case 'cancel': say('No hay ninguna ruta en marcha.', 'urgent'); break;
-    case 'where': whereAmI(); break;
+    case 'where': whereAmI(true); break;
     case 'stop': stop(); break;
     case 'describe': say(running ? describeText(seen) + ' ' + pathText(depthState()) : 'Inicia primero la guía para que pueda ver.', 'urgent'); break;
-    case 'start': running ? say('La guía ya está activada.', 'urgent') : start(); break;
+    case 'start': if (running) say('La guía ya está activada.', 'urgent'); else start(); break;
     case 'read': readText(); break;
     case 'code': readCode(); break;
     case 'open':
@@ -935,6 +957,7 @@ async function readCode() {
         say('Código encontrado.', 'urgent');
         const parts = window.PFLectura ? PFLectura.trocear(c.text, 180) : [c.text];
         for (const part of parts) say(part, 'queue');
+        await waitSpeech();
         return;
       }
       if (Date.now() - hint > 7000) { hint = Date.now(); say('Todavía no lo veo. Aleja un poco el móvil y muévelo despacio.', 'skip'); }
@@ -948,6 +971,8 @@ async function readCode() {
   finally { endBusy(); }
 }
 // ---------- Llévame a un sitio ----------
+// Un giro, un desvío o la llegada se dicen ya; un aviso previo caduca; "sigue recto" solo si hay silencio.
+const NAV_MODE = { inicio: 'queue', maniobra: 'urgent', desvio: 'urgent', llegada: 'urgent', preaviso: 'info', sentido: 'info', gps: 'info', vuelta: 'info', recto: 'skip' };
 let nav = null, navWatch = null, recalculating = false, places = null, placeIdx = 0, lastDest = null;
 function here() {
   return new Promise((ok, ko) => navigator.geolocation.getCurrentPosition(ok, ko,
@@ -993,7 +1018,7 @@ async function routeTo(c, place, isRecalc) {
   }
   try { if (navigator.wakeLock && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
   // La ruta no ve obstáculos: si la cámara está parada, se activa la guía para que avise de ellos.
-  if (!isRecalc && !running && !starting) start();
+  if (!isRecalc && !running && !starting) start(true);
 }
 async function onMove(pos) {
   if (!nav) return;
@@ -1002,7 +1027,7 @@ async function onMove(pos) {
     rumbo: c.heading === null || isNaN(c.heading) ? undefined : c.heading, tiempo: pos.timestamp });
   if (!a) return;
   nav.last = a;
-  if (!busy) say(a.texto, a.tipo === 'recto' ? 'skip' : 'queue');
+  if (!busy) say(a.texto, NAV_MODE[a.tipo] || 'queue');
   if (a.tipo === 'maniobra' || a.tipo === 'desvio') { buzz([120, 80, 120]); tones([[600, 0.1], [800, 0.1]]); }
   if (a.llegada) { buzz([200, 100, 200, 100, 400]); tones([[523, 0.1], [659, 0.1], [784, 0.2]]); stopRoute(); return; }
   if (a.recalcular && !recalculating) {
@@ -1026,12 +1051,7 @@ async function calibrate() {
     await waitSpeech(); await wait(1500);
     const vals = [];
     for (let i = 0; i < 4 && !cancelBusy; i++) {
-      const vw = video.videoWidth, vh = video.videoHeight, s = 160 / Math.max(vw, vh);
-      wc.width = Math.round(vw * s); wc.height = Math.round(vh * s);
-      wctx.drawImage(video, 0, 0, wc.width, wc.height);
-      const out = await depthPipe(depthT.RawImage.fromCanvas(wc));
-      const pd = out.predicted_depth, dims = pd.dims;
-      vals.push(analyzeDepth(pd.data, dims[dims.length - 1], dims[dims.length - 2]).C);
+      vals.push((await measureDepth()).C);
       tones([[700, 0.05]]);
     }
     if (cancelBusy) return;
@@ -1050,8 +1070,12 @@ function help() { options(false); }
 
 // ---------- Arranque ----------
 if (typeof document !== 'undefined' && btnGuide) {
-  btnGuide.addEventListener('click', () => { if (welcome()) return; running ? stop() : start(); });
+  btnGuide.addEventListener('click', () => { if (welcome()) return; if (running) stop(); else start(); });
   btnTalk.addEventListener('click', onTalkTap);
+  // Chrome puede negar la voz hasta el primer toque: si la guía arrancó sola y en silencio, se avisa al tocar.
+  document.addEventListener('pointerdown', () => {
+    if (!voiceWorks && running && !listening) { voice.shutUp(); say('Guía activada' + hi() + '. Si digo para, detente.', 'urgent'); }
+  }, { once: true, capture: true });
   document.getElementById('rep').addEventListener('click', e => { e.currentTarget.hidden = true; });
   // La zona de la cámara y la cabecera también sirven para hablar: un toque en cualquier sitio.
   document.getElementById('view').addEventListener('click', onTalkTap);
@@ -1080,7 +1104,7 @@ if (typeof document !== 'undefined' && btnGuide) {
   window.addEventListener('load', async () => {
     try {
       const p = await navigator.permissions.query({ name: 'camera' });
-      if (p.state === 'granted' && userName) start();
+      if (p.state === 'granted' && userName) start();   // sin argumento: arranque normal
       else statusEl.textContent = userName ? 'Hola, ' + userName + '. Toca arriba para iniciar la guía o abajo para hablarme.'
                                           : 'Toca la pantalla en cualquier sitio para empezar.';
     } catch (e) {}
