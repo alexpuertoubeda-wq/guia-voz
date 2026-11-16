@@ -48,6 +48,7 @@
   #cam, #ov { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   #status { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: .55rem .9rem; font-size: 1.05rem;
     line-height: 1.3; background: linear-gradient(transparent, rgba(0,0,0,.85) 35%); pointer-events: none; }
+  #rep { position: fixed; inset: 0; z-index: 9; margin: 0; padding: 16px; background: #000; color: #fff; font: 15px/1.5 monospace; white-space: pre-wrap; overflow: auto; }
   #osm { margin: 0; font-size: .68rem; color: #9aa0a8; text-align: center; }
   #osm a { color: #c9ccd1; }
   #diag { margin: 0; font-size: .72rem; color: #9aa0a8; text-align: center; min-height: 1em; }
@@ -76,6 +77,7 @@
   </button>
 </main>
 <p id="diag" aria-hidden="true"></p>
+<pre id="rep" hidden></pre>
 <p id="osm">Mapas y lugares: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">colaboradores de OpenStreetMap</a> · <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">corregir el mapa</a></p>
 
 <script src="tf.min.js"></script>
@@ -149,6 +151,7 @@ let depth = { state: 'off', C: 0, L: 0, R: 0, B: 0, ts: 0, ms: 0 };
 let busy = null, cancelBusy = false, pendingUrl = null, history = [], coming = null, lastComing = 0;
 let tiltBeta = null, lastTilt = 0;
 const wait = ms => new Promise(r => setTimeout(r, ms));
+let dHist = [], diagLog = [];
 let stopped = false, lastWarn = 0, wc = null, wctx = null, lc = null, lctx = null;
 let locatedOnce = false;
 
@@ -261,11 +264,33 @@ function codeText(value) {
   return { text: 'El código dice: ' + v, url: null };
 }
 function depthAdvice(dp) {
-  const l = dp.L < 0.5, r = dp.R < 0.5;
-  if (l && r) return dp.L <= dp.R ? 'Hay más espacio a la izquierda.' : 'Hay más espacio a la derecha.';
-  if (l) return 'Gira a la izquierda.';
-  if (r) return 'Gira a la derecha.';
-  return 'No hay paso libre. Gira despacio sobre ti mismo hasta que te avise.';
+  const l = dp.L < 0.6, r = dp.R < 0.6;
+  if (l && r) return dp.L <= dp.R ? 'Hay hueco a la izquierda.' : 'Hay hueco a la derecha.';
+  if (l) return 'Hay hueco a la izquierda.';
+  if (r) return 'Hay hueco a la derecha.';
+  return 'No hay paso. Gira despacio.';
+}
+// Estado estable del camino a partir de la cercanía C del centro (0 lejos, 1 pegado).
+// Los umbrales de entrada y de salida son distintos para que el aviso no salte de uno a otro.
+function nextLevel(prev, C, flat) {
+  if (flat) return 'stop';
+  if (prev === 'stop') return C >= 0.74 ? 'stop' : C >= 0.62 ? 'warn' : 'free';
+  if (C >= 0.86) return 'stop';
+  if (prev === 'warn') return C >= 0.62 ? 'warn' : 'free';
+  return C >= 0.70 ? 'warn' : 'free';
+}
+function median(a) { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; }
+// Resumen de las mediciones para el informe de diagnóstico. PURA.
+function reportText(log, extra) {
+  if (!log.length) return 'Sin mediciones todavía. Inicia la guía, camina un minuto y repite.';
+  const col = k => log.map(s => s[k]).sort((x, y) => x - y);
+  const q = (a, f) => a[Math.min(a.length - 1, Math.floor(a.length * f))];
+  const row = k => { const a = col(k); return k + ' min ' + q(a, 0).toFixed(2) + ' med ' + q(a, 0.5).toFixed(2) + ' p90 ' + q(a, 0.9).toFixed(2) + ' max ' + q(a, 1).toFixed(2); };
+  const n = { stop: 0, warn: 0, free: 0 };
+  log.forEach(s => { n[s.level] = (n[s.level] || 0) + 1; });
+  const ms = col('ms');
+  return ['PASO FIRME · INFORME', log.length + ' mediciones', row('C'), row('L'), row('R'), row('B'),
+    'ms med ' + q(ms, 0.5) + ' max ' + q(ms, 1), 'stop ' + n.stop + ' · warn ' + n.warn + ' · free ' + n.free, extra || ''].join('\n');
 }
 // Color dominante de un semáforo a partir de sus píxeles (RGBA).
 function lightColor(px) {
@@ -294,8 +319,8 @@ function advice(objs) {
   return 'Detente.';
 }
 function pathText(st) {
-  return st === 'free' ? 'El camino de delante parece libre.' : st === 'warn' ? 'Hay algo cerca delante.' :
-    st === 'blocked' ? 'El paso de delante está cortado.' : st === 'off' ? 'El detector de paredes no está listo.' : 'No veo bien el camino.';
+  return st === 'free' ? 'El paso de delante parece libre.' : st === 'warn' ? 'Hay algo cerca delante.' :
+    st === 'stop' ? 'El paso de delante está cortado.' : st === 'off' ? 'El detector de paredes no está listo.' : 'No veo bien el camino.';
 }
 function describeText(objs) {
   if (!objs.length) return 'No detecto ningún objeto conocido.';
@@ -305,61 +330,66 @@ function describeText(objs) {
 // ---------- Guía ----------
 function depthState() {
   if (!depthPipe) return 'off';
-  if (Date.now() - depth.ts > 6000) return 'doubt';
-  return depth.state;
+  // Medición vieja: se duda solo si lleva mucho más de lo que tarda una medición normal.
+  if (Date.now() - depth.ts > Math.max(8000, depth.ms * 4 + 2000)) return 'doubt';
+  return depth.level || 'free';
 }
-// Regla de seguridad: ante la duda, primero parar y después dar la instrucción.
-function decide(objs, dp, dstate) {
-  const danger = objs.find(o => o.zone === 'cen' && o.dist < NEAR);
-  if (danger) return { stop: true, text: 'Para. ' + danger.name + ' delante, ' + metros(danger.dist) + '. ' + advice(objs) };
-  if (dstate === 'blocked') return { stop: true, text: 'Para. Obstáculo delante, muy cerca. ' + depthAdvice(dp) };
-  if (dstate === 'doubt') return { stop: true, text: 'Para. No veo bien el camino. Espera sin avanzar.' };
-  if (dstate === 'nofloor') return { stop: true, text: 'Para. No veo el suelo. Inclina el móvil un poco hacia abajo.' };
-  if (dstate === 'warn') return { stop: false, warn: true, text: 'Atención, algo cerca delante. Avanza despacio.' };
-  return { stop: false };
+function stopText(danger, ds, objs) {
+  if (danger) return 'Para. ' + danger.name + ' delante. ' + advice(objs);
+  if (coming && coming.dist < 3) return 'Para. Se acerca ' + coming.name + '.';
+  if (ds === 'doubt') return 'Para. No veo bien.';
+  return 'Para. Obstáculo delante. ' + depthAdvice(depth);
 }
+// Avisos. Tres reglas para que no se atropellen:
+// 1) "Para" se dice una vez al entrar en parada y se repite, como mucho, cada 8 segundos.
+// 2) "Camino libre" solo cuando el paso lleva 1,5 segundos libre, y sin cortar la frase anterior.
+// 3) Un objeto cercano cuenta cuando sale en dos imágenes seguidas.
+let dangerRun = 0, dangerObj = null, freeAt = 0;
 function announce(objs) {
   if (listening || busy) return;
   const now = Date.now();
-  const dec = decide(objs, depth, depthState());
-  if (coming && !dec.stop && now - lastComing > 5000) {
-    lastComing = now; lastSummary = now;
-    const near = coming.dist < 3;
-    if (near) { buzz([250, 100, 250]); tones([[330, 0.16], [330, 0.16]]); stopped = true; lastUrgent = now; }
-    say((near ? 'Para. ' : '') + 'Se acerca ' + coming.name + ' ' + ZONE_TXT[coming.zone] + '.', 'urgent');
-    return;
-  }
-  const tilt = tiltAdvice(tiltBeta);
-  if (tilt && now - lastTilt > 6000) {
-    lastTilt = now; lastSummary = now;
-    say(tilt, 'urgent');
-    return;
-  }
-  if (dec.stop) {
-    if (now - lastUrgent > 3500) {
-      lastUrgent = now; lastSummary = now;
+  const found = objs.find(o => o.zone === 'cen' && o.dist < NEAR);
+  if (found) { dangerRun = Math.min(dangerRun + 1, 3); dangerObj = found; } else dangerRun = Math.max(dangerRun - 1, 0);
+  const danger = dangerRun >= 2 ? dangerObj : null;
+  const ds = depthState();
+  if (danger || ds === 'stop' || ds === 'doubt' || (coming && coming.dist < 3)) {
+    const first = !stopped;
+    freeAt = 0;
+    if (first || now - lastUrgent > 8000) {
+      lastUrgent = now; lastSummary = now; stopped = true;
       buzz([250, 100, 250]); tones([[330, 0.16], [330, 0.16]]);
-      say(dec.text, 'urgent');
+      say(stopText(danger, ds, objs), first ? 'urgent' : 'skip');
     }
-    stopped = true;
     return;
   }
   if (stopped) {
-    stopped = false; lastSummary = now;
-    say(dec.warn ? 'Hay algo de espacio. Avanza muy despacio.' : 'Camino libre' + hi() + '. Puedes seguir despacio.', 'urgent');
+    if (!freeAt) freeAt = now;
+    if (now - freeAt < 1500) return;
+    stopped = false; freeAt = 0; lastSummary = now; lastWarn = now;
+    say(ds === 'warn' ? 'Puedes seguir, muy despacio.' : 'Camino libre.', 'queue');
     return;
   }
-  if (dec.warn && now - lastWarn > 4000) {
-    if (say(dec.text, 'skip')) { lastWarn = now; lastSummary = now; }
+  if (coming && now - lastComing > 6000) {
+    lastComing = now; lastSummary = now;
+    say('Se acerca ' + coming.name + ' ' + ZONE_TXT[coming.zone] + '.', 'queue');
+    return;
+  }
+  const tilt = tiltAdvice(tiltBeta);
+  if (tilt && now - lastTilt > 10000) {
+    if (say(tilt, 'skip')) { lastTilt = now; lastSummary = now; }
+    return;
+  }
+  if (ds === 'warn') {
+    if (now - lastWarn > 10000 && say('Despacio. Algo cerca delante.', 'skip')) { lastWarn = now; lastSummary = now; }
     return;
   }
   if (objs.length) {
-    if (now - lastSummary > 4000) {
+    if (now - lastSummary > 6000) {
       const text = objs.slice(0, 2).map(o => o.name + ' ' + ZONE_TXT[o.zone] + ', ' + metros(o.dist)).join('. ') + '.';
       if (say(text, 'skip')) lastSummary = now;
     }
-  } else if (now - lastClear > 12000 && now - lastSummary > 4000) {
-    if (say(depthPipe ? 'Camino libre.' : 'Sin objetos detectados. El detector de paredes aún no está listo.', 'skip')) lastClear = now;
+  } else if (now - lastClear > 20000 && now - lastSummary > 6000) {
+    if (say(depthPipe ? 'Camino libre.' : 'Todavía cargo el detector de paredes.', 'skip')) lastClear = now;
   }
 }
 
@@ -395,7 +425,12 @@ async function depthLoop() {
         const out = await depthPipe(depthT.RawImage.fromCanvas(wc));
         const pd = out.predicted_depth, dims = pd.dims;
         const a = analyzeDepth(pd.data, dims[dims.length - 1], dims[dims.length - 2]);
-        depth = Object.assign(a, { ts: Date.now(), ms: Math.round(performance.now() - t0) });
+        dHist.push(a); if (dHist.length > 3) dHist.shift();
+        const sm = k => median(dHist.map(x => x[k]));
+        const C = sm('C'), flat = dHist.length === 3 && dHist.every(x => x.flat);
+        depth = { state: a.state, C, L: sm('L'), R: sm('R'), B: sm('B'), level: nextLevel(depth.level || 'free', C, flat),
+          ts: Date.now(), ms: Math.round(performance.now() - t0) };
+        diagLog.push({ C: a.C, L: a.L, R: a.R, B: a.B, ms: depth.ms, level: depth.level }); if (diagLog.length > 600) diagLog.shift();
       } catch (e) { console.error(e); }
     }
     await new Promise(r => setTimeout(r, 120));
@@ -448,7 +483,7 @@ async function loop() {
         draw(seen);
         diagEl.textContent = seen.length + (seen.length === 1 ? ' objeto' : ' objetos') + ' · ' + ms + ' ms · ' +
           (modelBase === 'mobilenet_v2' ? 'preciso' : 'ligero') +
-          (depthPipe ? ' · prof ' + depth.state + ' C' + depth.C.toFixed(2) + ' I' + depth.L.toFixed(2) + ' D' + depth.R.toFixed(2) +
+          (depthPipe ? ' · prof ' + (depth.level || '-') + ' C' + depth.C.toFixed(2) + ' I' + depth.L.toFixed(2) + ' D' + depth.R.toFixed(2) +
             ' S' + depth.B.toFixed(2) + ' ' + depth.ms + ' ms' : ' · prof cargando');
         announce(seen);
         // Si cada imagen tarda más de 1,5 s, el aviso llegaría tarde: se pasa al modelo ligero.
@@ -525,7 +560,7 @@ function stop() {
   if (!running) { say('La guía ya está parada.', 'urgent'); return; }
   running = false;
   seen = [];
-  stopped = false;
+  stopped = false; dHist = []; dangerRun = 0; depth.level = 'free';
   stopCamera();
   setGuideUI(false);
   buzz(80); tones([[784, 0.12], [523, 0.18]]);
@@ -676,6 +711,7 @@ function command(text) {
   if (has('lee', 'leer', 'leeme', 'lee esto', 'texto', 'periodico', 'carta', 'cartel')) return 'read';
   if (has('abre', 'abrir', 'abrela')) return 'open';
   if (has('cambia mi nombre', 'cambiar mi nombre', 'cambia el nombre', 'mi nombre')) return 'rename';
+  if (has('diagnostico', 'informe')) return 'report';
   if (has('opciones', 'menu', 'que puedes hacer', 'que sabes hacer')) return 'options';
   if (has('siguiente', 'otro sitio')) return 'next';
   if (has('cuanto falta', 'cuanto queda', 'distancia')) return 'remaining';
@@ -693,6 +729,13 @@ function handle(text) {
   switch (cmd) {
     case 'rename': onboarding = true; nameTries = 0; askName(); break;
     case 'options': options(false); break;
+    case 'report': {
+      const el = document.getElementById('rep');
+      el.textContent = reportText(diagLog, 'objetos ' + modelBase + ' · aislado ' + (self.crossOriginIsolated ? 'sí' : 'no') + '\n' + navigator.userAgent.slice(0, 110)) + '\n\nToca aquí para cerrar.';
+      el.hidden = false;
+      say('Informe en pantalla. Haz una captura y envíala.', 'urgent');
+      break;
+    }
     case 'next': nextPlace(); break;
     case 'remaining':
       say(nav && nav.last && nav.last.distanciaRestante != null ? 'Quedan unos ' + PFRutas.formatearDistancia(nav.last.distanciaRestante) + '.' :
@@ -717,7 +760,7 @@ function handle(text) {
 // ---------- Lectura de textos y de códigos ----------
 function speaking() { const s = window.speechSynthesis; return !!s && (s.speaking || s.pending); }
 async function waitSpeech() { await wait(400); while (speaking() && !cancelBusy) await wait(200); }
-function endBusy() { busy = null; depth.ts = Date.now(); history = []; coming = null; if (!running) stopCamera(); }
+function endBusy() { busy = null; depth.ts = Date.now(); history = []; coming = null; dHist = []; stopped = false; dangerRun = 0; if (!running) stopCamera(); }
 async function readText() {
   if (busy) { say('Ya estoy leyendo. Di para si quieres que pare.', 'urgent'); return; }
   if (!window.PFLectura) { say('El lector de textos no está disponible.', 'urgent'); return; }
@@ -881,6 +924,7 @@ function help() { options(false); }
 if (typeof document !== 'undefined' && btnGuide) {
   btnGuide.addEventListener('click', () => { if (welcome()) return; running ? stop() : start(); });
   btnTalk.addEventListener('click', onTalkTap);
+  document.getElementById('rep').addEventListener('click', e => { e.currentTarget.hidden = true; });
   // La zona de la cámara y la cabecera también sirven para hablar: un toque en cualquier sitio.
   document.getElementById('view').addEventListener('click', onTalkTap);
   document.querySelector('header').addEventListener('click', onTalkTap);
