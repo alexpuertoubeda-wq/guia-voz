@@ -273,7 +273,7 @@ prueba('URL y consultas con el formato documentado', () => {
   assert.ok(Math.abs(R.distancia(caja[1], -0.0513, caja[3], -0.0513) - 4000) < 20);
   assert.ok(Math.abs(R.distancia(39.9864, caja[0], 39.9864, caja[2]) - 4000) < 20);
   assert.strictEqual(R.consultaOverpass(39.9864, -0.0513, ['amenity=bar', 'amenity=pub'], 500),
-    '[out:json][timeout:20];\n(\n  nwr["amenity"="bar"](around:500,39.986400,-0.051300);\n  nwr["amenity"="pub"](around:500,39.986400,-0.051300);\n);\nout center;');
+    '[out:json][timeout:10];\n(\n  nwr["amenity"="bar"](around:500,39.986400,-0.051300);\n  nwr["amenity"="pub"](around:500,39.986400,-0.051300);\n);\nout center;');
 });
 
 // ---------------------------------------------------------------- simulación del recorrido
@@ -500,11 +500,15 @@ prueba('buscarCercanos: lista vacía si no hay nada', conFetch(() => respuesta(2
   assert.deepStrictEqual(await R.buscarCercanos(LAT0, LON0, FARMACIA), []);
   assert.strictEqual(llamadas.length, 3);
 }));
-prueba('buscarCercanos: si falla un servidor Overpass prueba el siguiente', conFetch((u) =>
+prueba('buscarCercanos: con varios servidores Overpass configurados, si falla uno prueba el siguiente', conFetch((u) =>
   u.includes('overpass-api.de') ? respuesta(429) : respuesta(200, OVERPASS_OK), async llamadas => {
-  const l = await R.buscarCercanos(LAT0, LON0, FARMACIA);
-  assert.strictEqual(l.length, 3);
-  assert.deepStrictEqual(llamadas.map(c => c.url), ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter']);
+  const antes = R.config.overpass.urls;
+  R.config.overpass.urls = ['https://overpass-api.de/api/interpreter', 'https://otro.ejemplo/api/interpreter'];
+  try {
+    const l = await R.buscarCercanos(LAT0, LON0, FARMACIA);
+    assert.strictEqual(l.length, 3);
+    assert.deepStrictEqual(llamadas.map(c => c.url), R.config.overpass.urls);
+  } finally { R.config.overpass.urls = antes; }
 }));
 prueba('buscarCercanos: errores claros (saturado, red, formato, parámetros)', async () => {
   await conFetch(() => respuesta(429), async () => {
@@ -582,6 +586,28 @@ prueba('respeta la separación mínima entre llamadas al mismo servicio', conFet
   assert.ok(Date.now() - t0 >= 110, String(Date.now() - t0));
   R.config.intervaloMinimoMs = 0;
 }));
+
+prueba('buscarCercanos: si Overpass falla, busca la categoría en Nominatim', conFetch((u) => {
+  if (u.includes('overpass')) return respuesta(502);
+  return respuesta(200, [
+    { lat: '39.9856', lon: '-0.0510', name: 'Farmacia Marco', category: 'amenity', type: 'pharmacy', address: { road: 'Calle Mayor', house_number: '3', city: 'Castellón de la Plana' } },
+    { lat: '39.9870', lon: '-0.0500', name: 'Parafarmacia Sol', category: 'shop', type: 'chemist', address: {} }
+  ]);
+}, async llamadas => {
+  R.vaciarCache();
+  const L = await R.buscarCercanos(39.9864, -0.0513, R.interpretar('llévame a la farmacia más cercana'));
+  assert.strictEqual(L.length, 1, JSON.stringify(L));
+  assert.strictEqual(L[0].nombre, 'Farmacia Marco');
+  assert.ok(L[0].direccion.startsWith('Calle Mayor 3'));
+  const ultima = llamadas[llamadas.length - 1].url;
+  assert.ok(ultima.includes('nominatim') && ultima.includes('amenity=pharmacy') && ultima.includes('bounded=1'), ultima);
+  assert.ok(!ultima.includes('q='), ultima);
+}));
+prueba('filtrarPorEtiquetas y urlNominatimCategoria', () => {
+  const j = [{ category: 'shop', type: 'supermarket' }, { category: 'shop', type: 'bakery' }];
+  assert.deepStrictEqual(R.filtrarPorEtiquetas(j, ['shop=supermarket']), [j[0]]);
+  assert.ok(R.urlNominatimCategoria(39.98, -0.05, 'bus stop', 500).includes('amenity=bus%20stop'));
+});
 
 // ---------------------------------------------------------------- ejecución
 (async () => {

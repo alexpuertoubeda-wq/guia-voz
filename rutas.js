@@ -29,9 +29,10 @@
     overpass: {
       activo: true,
       // Se prueban en orden si el anterior falla.
-      urls: ['https://overpass-api.de/api/interpreter',
-             'https://overpass.private.coffee/api/interpreter'],
-      esperaMs: 25000,
+      // Solo el servidor principal: las condiciones de otros servidores públicos no constan.
+      urls: ['https://overpass-api.de/api/interpreter'],
+      // Overpass se satura a menudo: se espera poco y, si no responde, se busca en Nominatim.
+      esperaMs: 15000,
       radioInicial: 500,
       radioMaximo: 5000
     },
@@ -510,7 +511,46 @@
         return normalizarOverpass(json, lat, lon, interpretacion);
       } catch (e) { ultimo = e; }
     }
+    // Reserva: búsqueda estructurada de Nominatim por tipo de lugar (parámetro «amenity»).
+    if (config.nominatim.activo) {
+      try { return await buscarCategoriaNominatim(lat, lon, interpretacion, radio); }
+      catch (e) { ultimo = ultimo || e; }
+    }
     throw ultimo || ErrorRutas('desactivado', 'La búsqueda de lugares está desactivada.');
+  }
+
+  /** URL de búsqueda estructurada de Nominatim por tipo de lugar dentro de un recuadro. PURA. */
+  function urlNominatimCategoria(lat, lon, valor, radio) {
+    var dLat = radio / 111320, dLon = radio / (111320 * Math.max(0.01, Math.cos(rad(lat))));
+    var caja = [lon - dLon, lat - dLat, lon + dLon, lat + dLat].map(function (v) { return v.toFixed(5); }).join(',');
+    return config.nominatim.url + '?amenity=' + encodeURIComponent(valor) + '&format=jsonv2&limit=20&addressdetails=1' +
+      '&accept-language=' + encodeURIComponent(config.nominatim.idioma) + '&viewbox=' + caja + '&bounded=1';
+  }
+
+  /** Se quedan solo los resultados cuya clase y tipo coinciden con alguna etiqueta pedida. PURA. */
+  function filtrarPorEtiquetas(json, etiquetas) {
+    if (!Array.isArray(json)) return json;
+    var validas = {};
+    etiquetas.forEach(function (e) { var kv = String(e).split('='); if (kv.length === 2) validas[kv[0] + '=' + kv[1]] = true; });
+    return json.filter(function (it) { return validas[it.category + '=' + it.type]; });
+  }
+
+  async function buscarCategoriaNominatim(lat, lon, interpretacion, radio) {
+    var etiquetas = interpretacion.etiquetasOSM || [], vistos = {}, todos = [];
+    for (var i = 0; i < etiquetas.length; i++) {
+      var kv = String(etiquetas[i]).split('=');
+      if (kv.length !== 2 || kv[1] === '*' || vistos[kv[1]]) continue;
+      vistos[kv[1]] = true;
+      var json = await pedirJSON('nominatim', urlNominatimCategoria(lat, lon, kv[1].replace(/_/g, ' '), radio),
+        { headers: { 'Accept': 'application/json' } }, config.nominatim.esperaMs);
+      if (!Array.isArray(json)) throw ErrorRutas('formato', 'El servicio de mapas ha dado una respuesta que no entiendo.');
+      todos = todos.concat(filtrarPorEtiquetas(json, etiquetas));
+    }
+    var lista = normalizarNominatim(todos, lat, lon), unicos = [];
+    lista.forEach(function (x) {
+      if (!unicos.some(function (u) { return u.nombre === x.nombre && distancia(u.lat, u.lon, x.lat, x.lon) < 15; })) unicos.push(x);
+    });
+    return unicos;
   }
 
   // ------------------------------------------------------------------
@@ -1004,6 +1044,8 @@
     normalizarOverpass: normalizarOverpass,
     urlNominatim: urlNominatim,
     normalizarNominatim: normalizarNominatim,
+    urlNominatimCategoria: urlNominatimCategoria,
+    filtrarPorEtiquetas: filtrarPorEtiquetas,
     urlRuta: urlRuta,
     normalizarRuta: normalizarRuta,
     vaciarCache: vaciarCache

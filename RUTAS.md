@@ -125,7 +125,7 @@ No se ha podido hacer ninguna llamada real a los servicios. Lo siguiente sale de
 | Forma `center: { lat, lon }` de vías y relaciones en el JSON de Overpass con `out center` | `out center` está documentado; la forma exacta del campo, **sin verificar**. |
 | Cabecera `Content-Type: application/x-www-form-urlencoded` en el POST a Overpass | La wiki muestra POST con `data=`; la cabecera, **sin verificar**. |
 | Subcampos de `address` en Nominatim (`road`, `house_number`, `city`…) | La página de Search remite a otra que no se consultó. Son los mismos que ya usa `whereAmI()` en `index.html`. |
-| Segundo servidor Overpass `overpass.private.coffee` | Figura en la wiki; sus condiciones, **sin verificar**. Se puede quitar de `PFRutas.config.overpass.urls`. |
+| Segundo servidor Overpass | Retirado: sus condiciones no constan y no respondió en la prueba del 16/11/2026. Si Overpass falla o tarda más de 15 s, la búsqueda por categoría pasa a Nominatim (parámetro estructurado `amenity`, comprobado desde el navegador el 16/11/2026). |
 | Convivencia con `Cross-Origin-Embedder-Policy: credentialless` que pone `sw.js` | **Sin verificar**. |
 | Calidad de las rutas a pie en Castellón y Benicàssim, y del reconocimiento de voz con nombres propios | **Sin verificar**: requiere prueba en la calle con acompañante vidente. |
 | `healthcare=centre` | Existe en la wiki, que desaconseja usarla sola; se mantiene junto a `amenity=clinic` y `amenity=doctors`. |

@@ -1,6 +1,6 @@
 // Paso Firme: caché para instalar y abrir sin conexión, y cabeceras de aislamiento
 // (necesarias para que el medidor de profundidad use varios núcleos del móvil).
-const CACHE = 'paso-firme-v8';
+const CACHE = 'paso-firme-v9';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'tf.min.js', 'coco-ssd.min.js', 'lectura.js', 'rutas.js'];
 
 self.addEventListener('install', e => {
