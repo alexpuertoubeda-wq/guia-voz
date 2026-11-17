@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Traductor Multilingüe</title>
+<meta name="theme-color" content="#0E1628">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cGF0aCBkPSJNMTEyIDMySDQwMGE4MCA4MCAwIDAgMSA4MCA4MFYzNTJhODAgODAgMCAwIDEtODAgODBIMTk2TDEwNCA0OTZWNDMyQTgwIDgwIDAgMCAxIDMyIDM1MlYxMTJhODAgODAgMCAwIDEgODAtODBaIiBmaWxsPSIjMUIyQTRBIi8+PHBhdGggZD0iTTE2OCAyMDBWMjg0YTg4IDg4IDAgMCAwIDE3NiAwVjIwME0zNDQgMjAwVjM2MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkZGRkZGIiBzdHJva2Utd2lkdGg9IjU2IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48Y2lyY2xlIGN4PSIxOTYiIGN5PSIxMTgiIHI9IjM0IiBmaWxsPSIjRjI3MTRCIi8+PGNpcmNsZSBjeD0iMzE2IiBjeT0iMTE4IiByPSIzNCIgZmlsbD0iI0YyNzE0QiIvPjwvc3ZnPg==">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+/* App móvil con el estilo de la web: azul noche, coral de la «ü», letra muy legible, botones grandes y bocadillos. */
+@font-face{font-family:"Atkinson Hyperlegible";font-style:normal;font-weight:400;font-display:swap;src:url(fonts/atkinson-hyperlegible-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Atkinson Hyperlegible";font-style:normal;font-weight:700;font-display:swap;src:url(fonts/atkinson-hyperlegible-latin-700-normal.woff2) format("woff2")}
+:root{
+  --noche:#0E1628; --noche-2:#16213A; --noche-3:#24324F; --tinta:#1B2A4A;
+  --papel:#F4F6FB; --suave:#B9C4DB; --coral:#F2714B; --coral-hi:#FF9A78; --ink:#1A0F08;
+  --ok:#5CC596; --error:#F2867E; --rojo:#B42318; --borde:#6B7BA0; color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--noche);color:var(--papel);font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:17px;line-height:1.5;overflow-x:hidden;
+  padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
+.marco{max-width:560px;margin:0 auto;padding-block:max(14px,env(safe-area-inset-top,0px)) 32px;display:grid;gap:14px}
+header{display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:2px solid var(--noche-3)}
+header img{width:40px;height:40px;flex:none}
+header h1{font-weight:700;font-size:1.35rem;margin:0;letter-spacing:-.01em;min-width:0;overflow-wrap:anywhere;line-height:1.15}
+label,.etq{display:block;font-size:.8rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--suave);margin-bottom:6px}
+select,textarea,button{font:inherit;color:inherit}
+.idiomas{display:grid;grid-template-columns:1fr 52px 1fr;gap:8px;align-items:end}
+.idiomas>div{min-width:0}
+select{width:100%;padding:10px;border:2px solid var(--borde);border-radius:14px;background:var(--noche-2);min-height:52px;font-weight:700}
+.cambiar{width:52px;height:52px;border-radius:14px;border:2px solid var(--borde);background:var(--noche-2);cursor:pointer;font-size:1.3rem;color:var(--coral-hi);font-weight:700}
+.captura{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.btn{border:0;border-radius:16px;padding:10px 14px;min-height:52px;font-weight:700;cursor:pointer;background:var(--coral);color:var(--ink);
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;text-align:center;box-shadow:inset 0 -4px 0 rgba(0,0,0,.22)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sec{background:var(--noche-2);color:var(--papel);box-shadow:inset 0 0 0 2px rgba(244,246,251,.35)}
+.captura .btn{flex-direction:column;gap:4px;min-height:84px;font-size:.98rem;padding:10px 6px;border-radius:20px}
+.captura .ico{width:30px;height:30px;display:block}
+.captura .ico svg{width:100%;height:100%;display:block}
+#dictar.activo{background:var(--rojo);color:#fff;box-shadow:none}
+button:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--coral-hi);outline-offset:2px}
+.caja.res :focus-visible,.pantalla :focus-visible{outline-color:var(--tinta)}
+.caja{border:2px solid var(--borde);border-radius:20px 20px 20px 6px;background:var(--noche-2);overflow:hidden;display:flex;flex-direction:column}
+.caja.res{background:var(--papel);color:var(--tinta);border-color:var(--papel);border-radius:20px 20px 6px 20px}
+.caja.res .etq{color:#4A5778}
+.caja .etq{padding:12px 14px 0;margin:0}
+textarea{border:0;resize:vertical;min-height:140px;padding:10px 14px;background:transparent;font-size:1.1rem;width:100%}
+textarea::placeholder{color:var(--suave)}
+textarea:focus{outline:none}
+.caja:focus-within{outline:3px solid var(--coral-hi);outline-offset:2px}
+.salida{padding:10px 14px;min-height:96px;font-size:1.25rem;font-weight:700;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.35}
+.salida:empty::before{content:"La traducción aparecerá aquí.";color:#4A5778;font-weight:400}
+.pie{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px 8px 14px;border-top:2px solid var(--noche-3);font-size:.9rem;color:var(--suave);flex-wrap:wrap}
+.caja.res .pie{border-top-color:#D5DBE7;color:#4A5778}
+.pie .grupo{display:flex;gap:8px;flex-wrap:wrap}
+.pie .btn{min-height:46px;padding:8px 16px}
+.caja.res .btn.sec{background:var(--tinta);color:var(--papel);box-shadow:none}
+#traducir{width:100%;min-height:60px;font-size:1.2rem;border-radius:18px}
+.estado{font-size:1rem;color:var(--suave);min-height:1.5em;overflow-wrap:anywhere}
+.estado.err{color:var(--error);font-weight:700} .estado.ok{color:var(--ok);font-weight:700}
+.ocr{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:2px solid var(--noche-3);border-radius:16px;padding:10px 12px;background:var(--noche-2)}
+.ocr[hidden]{display:none}
+.ocr span{flex:1 1 180px}
+.ocr .btn{min-height:46px}
+.escuchando{display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;background:var(--rojo);border-radius:14px;padding:10px 14px}
+.escuchando[hidden]{display:none}
+.escuchando i{width:14px;height:14px;border-radius:50%;background:#fff;animation:latido 1s ease-in-out infinite}
+@keyframes latido{50%{opacity:.25}}
+.vozauto{display:flex;gap:10px;align-items:center;font-size:1rem;font-weight:400;letter-spacing:0;text-transform:none;color:var(--papel);margin:0;cursor:pointer}
+.vozauto input{width:24px;height:24px;flex:none;accent-color:var(--coral)}
+.hablar{display:grid;grid-template-columns:1.6fr 1fr;gap:8px;padding:0 10px 10px}
+.hablar .btn{min-height:56px;font-size:1.05rem}
+.caja.res .hablar .btn.sec{background:#DCE2EE;color:var(--tinta);box-shadow:none}
+.responder{min-height:60px;font-size:1.1rem;border-radius:18px}
+.pantalla{position:fixed;inset:0;z-index:50;background:var(--papel);color:var(--tinta);display:flex;flex-direction:column;justify-content:center;gap:24px;
+  padding:max(24px,env(safe-area-inset-top,0px)) 20px max(24px,env(safe-area-inset-bottom,0px))}
+.pantalla[hidden]{display:none}
+.pantalla p{font-size:clamp(2rem,9vw,3.4rem);font-weight:700;line-height:1.2;overflow-wrap:anywhere;overflow:auto;margin:0}
+.pantalla .btn{align-self:center;min-width:12rem}
+.aviso{font-size:.92rem;color:var(--suave);border-left:4px solid var(--coral);padding:2px 0 2px 10px;margin:0}
+.instalar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:.98rem;border:2px dashed var(--noche-3);border-radius:16px;padding:10px 12px}
+.instalar[hidden]{display:none}
+footer{font-size:.85rem;color:var(--suave);display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding-top:10px;border-top:2px solid var(--noche-3)}
+footer a{color:var(--coral-hi)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="acceso" role="dialog" aria-modal="true" aria-labelledby="accesoTit" style="position:fixed;inset:0;z-index:9999;background:#0E1628;color:#fff;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box">
+<form id="accesoForm" style="max-width:360px;width:100%;background:#16213A;border-radius:20px 20px 20px 6px;padding:22px;border:2px solid #24324F;box-sizing:border-box">
+<h2 id="accesoTit" style="margin:0 0 8px;font-size:1.25rem">Código de acceso</h2>
+<p id="accesoMsg" role="status" style="margin:0 0 14px;color:#d6dbe6;font-size:.95rem">Introduce el código personal que te ha dado Alexis Puerto.</p>
+<label for="accesoCod" style="position:absolute;left:-9999px">Código</label>
+<input id="accesoCod" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ML-XXXX-XXXX" style="width:100%;box-sizing:border-box;min-height:52px;font-size:1.1rem;padding:10px;border-radius:12px;border:2px solid #24324F;background:#0E1628;color:#F4F6FB;font-family:inherit;text-transform:uppercase">
+<button id="accesoBtn" type="submit" style="margin-top:12px;width:100%;min-height:52px;border:0;border-radius:14px;background:#F2714B;color:#1A0F08;font-size:1.1rem;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:inset 0 -4px 0 rgba(0,0,0,.22)">Entrar</button>
+<p style="margin:14px 0 0;font-size:.85rem;color:#aeb6c6">¿No tienes código? Escribe a <a href="mailto:alex.puertoubeda@gmail.com" style="color:#FF9A78">alex.puertoubeda@gmail.com</a></p>
+<p style="margin:10px 0 0;font-size:.85rem"><a href="https://multilingue-traductor.netlify.app/#legal" target="_blank" rel="noopener" style="color:#FF9A78">Aviso legal y privacidad</a></p>
+</form></div>
+<script>
+(function () {
+  var URL_ACCESO = 'https://script.google.com/macros/s/AKfycbwoxNsN3wift5Ix8bS7bSE6CbUT1hli2WVYiDBlEJkPGSmx4AnD0MWB-0rYQi2QT-kD/exec';
+  var d = document, capa = d.getElementById('acceso'), form = d.getElementById('accesoForm'),
+      inp = d.getElementById('accesoCod'), msg = d.getElementById('accesoMsg'), btn = d.getElementById('accesoBtn');
+  function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } }
+  var disp = ls('ml-disp');
+  if (!disp) { disp = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2); ls('ml-disp', disp); }
+  var MOT = { 'no-existe': 'Ese código no existe. Revísalo.', 'anulado': 'Este código ha sido anulado.',
+    'en-uso': 'Este código ya se está usando en otro dispositivo.', 'red': 'No se ha podido comprobar el código. Revisa la conexión y vuelve a intentarlo.' };
+  function fondo(si) { var m = d.querySelector('.marco'); if (m) { m.inert = si; if (si) m.setAttribute('aria-hidden', 'true'); else m.removeAttribute('aria-hidden'); } }
+  function abierta() { capa.style.display = 'none'; fondo(false); var h = d.querySelector('.marco h1'); if (h) { h.tabIndex = -1; h.focus(); } }
+  function cerrada(t) { msg.textContent = t; capa.style.display = 'flex'; btn.disabled = false; fondo(true); inp.focus(); }
+  d.addEventListener('DOMContentLoaded', function () { if (capa.style.display !== 'none') { fondo(true); if (!ls('ml-codigo')) inp.focus(); } });
+  function comprobar(c) {
+    return fetch(URL_ACCESO + '?codigo=' + encodeURIComponent(c) + '&disp=' + encodeURIComponent(disp), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .catch(function () { return { ok: false, motivo: 'red' }; });
+  }
+  function intentar(c, guardado) {
+    btn.disabled = true; msg.textContent = guardado ? 'Comprobando tu acceso…' : 'Comprobando…';
+    comprobar(c).then(function (r) {
+      var m = (r && r.motivo) || 'red';
+      if (r && r.ok) { ls('ml-codigo', c); abierta(); return; }
+      if (m !== 'red') ls('ml-codigo', null);
+      cerrada(MOT[m] || MOT.red);
+    });
+  }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var c = inp.value.trim().toUpperCase();
+    if (c) intentar(c, false);
+  });
+  var g = ls('ml-codigo');
+  if (g) { inp.value = g; intentar(g, true); }
+})();
+</script>
+<main class="marco">
+  <header>
+    <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cGF0aCBkPSJNMTEyIDMySDQwMGE4MCA4MCAwIDAgMSA4MCA4MFYzNTJhODAgODAgMCAwIDEtODAgODBIMTk2TDEwNCA0OTZWNDMyQTgwIDgwIDAgMCAxIDMyIDM1MlYxMTJhODAgODAgMCAwIDEgODAtODBaIiBmaWxsPSIjRkZGRkZGIi8+PHBhdGggZD0iTTE2OCAyMDBWMjg0YTg4IDg4IDAgMCAwIDE3NiAwVjIwME0zNDQgMjAwVjM2MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMUIyQTRBIiBzdHJva2Utd2lkdGg9IjU2IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48Y2lyY2xlIGN4PSIxOTYiIGN5PSIxMTgiIHI9IjM0IiBmaWxsPSIjRjI3MTRCIi8+PGNpcmNsZSBjeD0iMzE2IiBjeT0iMTE4IiByPSIzNCIgZmlsbD0iI0YyNzE0QiIvPjwvc3ZnPgo=" alt="">
+    <h1>Traductor Multilingüe</h1>
+  </header>
+
+  <div class="estado err" id="red" role="alert" hidden></div>
+
+  <div class="idiomas">
+    <div><label for="src">De</label><select id="src"></select></div>
+    <button class="cambiar" id="cambiar" type="button" aria-label="Intercambiar idiomas" title="Intercambiar idiomas">⇄</button>
+    <div><label for="tgt">A</label><select id="tgt"></select></div>
+  </div>
+
+  <div class="captura">
+    <button class="btn" id="foto" type="button"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg></span>Hacer foto</button>
+    <button class="btn sec" id="galeria" type="button"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 13h16l-5-6.5-3.5 4.4L9 12z"/></svg></span>Elegir imagen</button>
+    <button class="btn sec" id="dictar" type="button" aria-pressed="false"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 0 0-7 0v6A3.5 3.5 0 0 0 12 15zm6-3.5a6 6 0 0 1-12 0H4.5a7.5 7.5 0 0 0 6.75 7.46V22h1.5v-3.04a7.5 7.5 0 0 0 6.75-7.46z"/></svg></span><span id="dictarTxt">Dictar</span></button>
+  </div>
+  <input id="inCamara" type="file" accept="image/*" capture="environment" hidden>
+  <input id="inGaleria" type="file" accept="image/*" hidden>
+
+  <p class="aviso" id="avisoFoto">La foto no sale de tu móvil: el texto se lee en el propio teléfono.</p>
+  <p class="aviso" id="avisoDictado">Al dictar, tu voz la procesa el servicio de voz de tu navegador (Google en Android, Apple en iPhone).</p>
+
+  <div class="escuchando" id="escuchando" role="status" hidden><i aria-hidden="true"></i>Escuchando…</div>
+  <div class="ocr" id="ocr" hidden>
+    <span id="ocrTxt" role="status"></span>
+    <button class="btn sec" id="cancelar" type="button">Cancelar</button>
+  </div>
+
+  <div class="caja">
+    <label class="etq" for="texto">Texto original</label>
+    <textarea id="texto" maxlength="20000" placeholder="Escribe, dicta o haz una foto."></textarea>
+    <div class="pie"><span id="cuenta">0 / 5.000 caracteres</span><button class="btn sec" id="borrar" type="button">Borrar</button></div>
+  </div>
+
+  <button class="btn" id="traducir" type="button">Traducir</button>
+  <label class="vozauto"><input type="checkbox" id="vozAuto" checked> <span>Leer la traducción en voz alta al traducir</span></label>
+  <p class="aviso" id="avisoTraducir">El texto se envía a MyMemory para traducirlo, salvo que tu navegador traduzca en el propio móvil.</p>
+  <div class="estado" id="estado" role="status" aria-live="polite"></div>
+
+  <div class="caja res">
+    <span class="etq">Traducción</span>
+    <div class="salida" id="salida" aria-live="polite"></div>
+    <div class="hablar" id="hablar" hidden>
+      <button class="btn" id="escuchar" type="button"><span aria-hidden="true">🔊</span> Repetir en voz alta</button>
+      <button class="btn sec" id="despacio" type="button">Más despacio</button>
+    </div>
+    <div class="pie"><span id="voz"></span>
+      <span class="grupo"><button class="btn sec" id="grande" type="button" hidden>Pantalla grande</button>
+      <button class="btn sec" id="copiar" type="button">Copiar</button></span></div>
+  </div>
+
+  <button class="btn sec responder" id="responder" type="button" hidden><span aria-hidden="true">🎤</span> <span id="responderTxt">Que te responda</span></button>
+
+  <div class="pantalla" id="pantalla" role="dialog" aria-modal="true" aria-label="Traducción en pantalla grande" hidden>
+    <p id="pantallaTxt"></p>
+    <button class="btn" id="cerrarPantalla" type="button">Cerrar</button>
+  </div>
+
+  <div class="instalar" id="instalarBoton" hidden><span>Llévala en la pantalla de inicio.</span><button class="btn" id="instalar" type="button">Instalar app</button></div>
+  <div class="instalar" id="instalarIos" hidden>Para instalarla: pulsa Compartir y luego Añadir a pantalla de inicio.</div>
+
+  <footer><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cGF0aCBkPSJNMTEyIDMySDQwMGE4MCA4MCAwIDAgMSA4MCA4MFYzNTJhODAgODAgMCAwIDEtODAgODBIMTk2TDEwNCA0OTZWNDMyQTgwIDgwIDAgMCAxIDMyIDM1MlYxMTJhODAgODAgMCAwIDEgODAtODBaIiBmaWxsPSIjRkZGRkZGIi8+PHBhdGggZD0iTTE2OCAyMDBWMjg0YTg4IDg4IDAgMCAwIDE3NiAwVjIwME0zNDQgMjAwVjM2MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMUIyQTRBIiBzdHJva2Utd2lkdGg9IjU2IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48Y2lyY2xlIGN4PSIxOTYiIGN5PSIxMTgiIHI9IjM0IiBmaWxsPSIjRjI3MTRCIi8+PGNpcmNsZSBjeD0iMzE2IiBjeT0iMTE4IiByPSIzNCIgZmlsbD0iI0YyNzE0QiIvPjwvc3ZnPgo=" alt="" width="18" height="18"> Multilingüe · creado por <strong>Alexis Puerto</strong> con inteligencia artificial · <a href="mailto:alex.puertoubeda@gmail.com">alex.puertoubeda@gmail.com</a> · <a href="https://multilingue-traductor.netlify.app/#legal" target="_blank" rel="noopener">Aviso legal y privacidad</a></footer>
+</main>
+
+<script>/* Núcleo de Multilingüe: motores de traducción y traducción de documentos.
+   Funciona en el navegador y en Node (para pruebas). */
+(function (root) {
+  'use strict';
+
+  // ---------- Troceado de texto ----------
+  // MyMemory admite como máximo 500 bytes por petición; se usa 450 por margen.
+  function byteLen(s) { return new TextEncoder().encode(s).length; }
+
+  function splitText(text, maxBytes) {
+    maxBytes = maxBytes || 450;
+    if (byteLen(text) <= maxBytes) return [text];
+    var parts = text.match(/[^.!?。！？\n]+[.!?。！？]*\s*|\n+/g) || [text];
+    var chunks = [], cur = '';
+    parts.forEach(function (p) {
+      if (byteLen(cur + p) <= maxBytes) { cur += p; return; }
+      if (cur) chunks.push(cur);
+      cur = '';
+      if (byteLen(p) <= maxBytes) { cur = p; return; }
+      // Frase demasiado larga: cortar por palabras
+      p.split(/(\s+)/).forEach(function (w) {
+        if (byteLen(cur + w) > maxBytes && cur) { chunks.push(cur); cur = ''; }
+        if (byteLen(w) > maxBytes) {
+          // Palabra o texto sin espacios demasiado largo: cortar por caracteres completos
+          Array.from(w).forEach(function (ch) {
+            if (byteLen(cur + ch) > maxBytes) { chunks.push(cur); cur = ''; }
+            cur += ch;
+          });
+          return;
+        }
+        cur += w;
+      });
+    });
+    if (cur) chunks.push(cur);
+    return chunks;
+  }
+
+  function decodeEntities(t) {
+    return t.replace(/&(#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos);/gi, function (m, e) {
+      var k = e.toLowerCase();
+      if (k[0] === '#') return String.fromCodePoint(k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10));
+      return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[k];
+    });
+  }
+
+  // ---------- Motores ----------
+  function chromeAvailable() {
+    return typeof self !== 'undefined' && 'Translator' in self;
+  }
+
+  function conTiempo(promesa, ms) {
+    return Promise.race([promesa, new Promise(function (_, rej) {
+      setTimeout(function () { rej(new Error('tiempo agotado')); }, ms);
+    })]);
+  }
+
+  var chromeCache = {};
+  async function chromeTranslator(src, tgt, onProgress) {
+    var key = src + '>' + tgt;
+    if (chromeCache[key]) return chromeCache[key];
+    var avail = await conTiempo(self.Translator.availability({ sourceLanguage: src, targetLanguage: tgt }), 8000);
+    if (avail === 'unavailable') return null;
+    // La primera vez el navegador puede descargar el idioma: se le da más margen
+    var t = await conTiempo(self.Translator.create({
+      sourceLanguage: src, targetLanguage: tgt,
+      monitor: function (m) {
+        m.addEventListener('downloadprogress', function (e) {
+          if (onProgress) onProgress(Math.round((e.loaded || 0) * 100));
+        });
+      }
+    }), avail === 'available' ? 10000 : 60000);
+    chromeCache[key] = t;
+    return t;
+  }
+
+  async function myMemory(text, src, tgt, email, fetchFn) {
+    fetchFn = fetchFn || fetch;
+    var url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) +
+      '&langpair=' + encodeURIComponent(src + '|' + tgt) +
+      (email ? '&de=' + encodeURIComponent(email) : '');
+    var r, d;
+    try { r = await fetchFn(url); } catch (e) {
+      throw new Error('No se pudo conectar con el servicio de traducción. Comprueba tu conexión a internet.');
+    }
+    if (!r.ok) throw new Error('El servicio de traducción no está disponible ahora (error ' + r.status + '). Inténtalo más tarde.');
+    try { d = await r.json(); } catch (e) { d = null; }
+    if (!d) throw new Error('El servicio de traducción ha devuelto una respuesta no válida. Inténtalo más tarde.');
+    var out = d.responseData && d.responseData.translatedText;
+    var st = String(d.responseStatus);
+    if (st === '429' || /^MYMEMORY WARNING/i.test(out || '')) {
+      throw new Error('Se ha agotado el cupo gratuito de traducciones de hoy. Prueba mañana o usa Chrome o Edge en ordenador.');
+    }
+    if (st !== '200' || !out) {
+      throw new Error('El servicio no admite este texto o esta combinación de idiomas. Prueba con otro par de idiomas.');
+    }
+    return decodeEntities(out);
+  }
+
+  // Crea una función translate(text) para un par de idiomas.
+  async function createEngine(opts) {
+    var src = opts.src, tgt = opts.tgt;
+    if (opts.custom) return { name: 'prueba', translate: opts.custom };
+    if (chromeAvailable()) {
+      try {
+        var t = await chromeTranslator(src, tgt, opts.onProgress);
+        if (t) {
+          var respaldo = null;
+          return { name: 'navegador', translate: async function (s) {
+            if (!respaldo) {
+              try { return await conTiempo(t.translate(s), 20000); }
+              catch (e) { respaldo = mmEngine(opts); }   // si el navegador falla, se pasa a MyMemory
+            }
+            return respaldo.translate(s);
+          } };
+        }
+      } catch (e) { /* se usa el respaldo */ }
+    }
+    return mmEngine(opts);
+  }
+
+  function mmEngine(opts) {
+    var src = opts.src, tgt = opts.tgt;
+    return {
+      name: 'mymemory',
+      translate: async function (s) {
+        var chunks = splitText(s, 450), out = '';
+        for (var i = 0; i < chunks.length; i++) {
+          var c = chunks[i];
+          var lead = c.match(/^\s*/)[0], trail = c.match(/\s*$/)[0];
+          var core = c.trim();
+          out += lead + (core ? await myMemory(core, src, tgt, opts.email, opts.fetchFn) : '') + (core ? trail : '');
+        }
+        return out;
+      }
+    };
+  }
+
+  // ---------- Documentos ----------
+  // Cada formato: archivos XML que contienen texto, etiqueta de párrafo y etiqueta de texto.
+  var FORMATS = {
+    docx: { files: /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/, para: 'w:p', text: 'w:t' },
+    pptx: { files: /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/, para: 'a:p', text: 'a:t' },
+    xlsx: { files: /^xl\/(sharedStrings|worksheets\/sheet\d+)\.xml$/, para: 'si', text: 't',
+      // Las hojas pueden llevar texto en línea (<is>) en vez de usar sharedStrings
+      paraFor: function (name) { return /worksheets/.test(name) ? 'is' : 'si'; } }
+  };
+
+  function extOf(name) { var m = /\.([a-z0-9]+)$/i.exec(name); return m ? m[1].toLowerCase() : ''; }
+
+  // Une el texto de un párrafo, lo traduce y lo escribe en el primer nodo de texto.
+  // Limitación conocida: si un párrafo mezcla formatos (negrita en medio), queda con el formato del primer tramo.
+  async function translateXml(xml, fmt, tr, env, stats) {
+    var doc = new env.DOMParser().parseFromString(xml, 'application/xml');
+    var paras = doc.getElementsByTagName(fmt.para);
+    for (var i = 0; i < paras.length; i++) {
+      var p = paras[i];
+      var nodes = Array.prototype.filter.call(p.getElementsByTagName(fmt.text), function (n) {
+        // En Excel, ignorar textos fonéticos (rPh)
+        if (n.parentNode && n.parentNode.nodeName === 'rPh') return false;
+        // Ignorar texto de párrafos anidados (cuadros de texto): se traducen en su propio párrafo
+        for (var a = n.parentNode; a && a !== p; a = a.parentNode) if (a.nodeName === fmt.para) return false;
+        return true;
+      });
+      if (!nodes.length) continue;
+      // Grupos: el texto de un hipervínculo se traduce aparte para que el enlace conserve su texto
+      var groups = [], last = null;
+      nodes.forEach(function (n) {
+        var key = null;
+        for (var a = n.parentNode; a && a !== p; a = a.parentNode) if (a.nodeName === 'w:hyperlink') { key = a; break; }
+        if (!groups.length || key !== last) groups.push([]);
+        groups[groups.length - 1].push(n); last = key;
+      });
+      for (var g = 0; g < groups.length; g++) {
+        var grp = groups[g];
+        var full = grp.map(function (n) { return n.textContent; }).join('');
+        if (!full.trim() || !/\p{L}/u.test(full)) continue;
+        var out = await tr(full);
+        stats.paragraphs++;
+        grp[0].textContent = out;
+        if (fmt.text === 'w:t') grp[0].setAttribute('xml:space', 'preserve');
+        for (var j = 1; j < grp.length; j++) grp[j].textContent = '';
+      }
+    }
+    return new env.XMLSerializer().serializeToString(doc);
+  }
+
+  async function translateOffice(data, ext, translate, env, onStep) {
+    var fmt = FORMATS[ext];
+    if (!fmt) throw new Error('Formato no admitido: .' + ext);
+    var zip = await env.JSZip.loadAsync(data);
+    var names = Object.keys(zip.files).filter(function (n) { return fmt.files.test(n); }).sort();
+    if (!names.length) throw new Error('El archivo no contiene texto editable reconocible.');
+    var cache = new Map();
+    var stats = { paragraphs: 0, files: names.length };
+    var tr = async function (s) {
+      if (!cache.has(s)) cache.set(s, await translate(s));
+      return cache.get(s);
+    };
+    if (ext === 'xlsx') {
+      var sheets = Object.keys(zip.files).filter(function (n) { return /^xl\/worksheets\/sheet\d+\.xml$/.test(n); });
+      for (var k = 0; k < sheets.length; k++) {
+        var sx = await zip.file(sheets[k]).async('string');
+        var sd = new env.DOMParser().parseFromString(sx, 'application/xml');
+        var fs = sd.getElementsByTagName('f'), changed = false;
+        for (var q = fs.length - 1; q >= 0; q--) {
+          var cell = fs[q].parentNode, vs = cell.getElementsByTagName('v');
+          for (var z = vs.length - 1; z >= 0; z--) { cell.removeChild(vs[z]); changed = true; }
+          if (cell.getAttribute('t') === 'str') cell.removeAttribute('t');
+        }
+        if (changed) zip.file(sheets[k], new env.XMLSerializer().serializeToString(sd));
+      }
+      var wbf = zip.file('xl/workbook.xml');
+      if (wbf) {
+        var wd = new env.DOMParser().parseFromString(await wbf.async('string'), 'application/xml');
+        var cp = wd.getElementsByTagName('calcPr')[0];
+        if (!cp) {
+          cp = wd.createElementNS(wd.documentElement.namespaceURI, 'calcPr');
+          // Orden del esquema: calcPr va antes de estos elementos
+          var after = ['oleSize','customWorkbookViews','pivotCaches','smartTagPr','smartTagTypes','webPublishing','fileRecoveryPr','webPublishObjects','extLst'];
+          var ref = null, kids = wd.documentElement.childNodes;
+          for (var c = 0; c < kids.length && !ref; c++) if (after.indexOf(kids[c].localName) >= 0) ref = kids[c];
+          wd.documentElement.insertBefore(cp, ref);
+        }
+        cp.setAttribute('fullCalcOnLoad', '1');
+        zip.file('xl/workbook.xml', new env.XMLSerializer().serializeToString(wd));
+      }
+    }
+    for (var i = 0; i < names.length; i++) {
+      if (onStep) onStep(i + 1, names.length);
+      var xml = await zip.file(names[i]).async('string');
+      var f = fmt.paraFor ? { para: fmt.paraFor(names[i]), text: fmt.text } : fmt;
+      zip.file(names[i], await translateXml(xml, f, tr, env, stats));
+    }
+    var blob = await zip.generateAsync({ type: env.outType || 'blob', compression: 'DEFLATE',
+      mimeType: { docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }[ext] });
+    return { blob: blob, stats: stats };
+  }
+
+  // Texto plano y subtítulos: se traduce línea a línea conservando la estructura.
+  async function translatePlain(text, ext, translate) {
+    var lines = text.split(/\r?\n/), out = [], cache = new Map();
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      var skip = !l.trim() || !/\p{L}/u.test(l) ||
+        (ext === 'srt' && (/^\d+$/.test(l.trim()) || /-->/.test(l)));
+      if (skip) { out.push(l); continue; }
+      if (!cache.has(l)) cache.set(l, await translate(l));
+      out.push(cache.get(l));
+    }
+    return out.join('\n');
+  }
+
+  var api = { splitText: splitText, createEngine: createEngine, translateOffice: translateOffice,
+    translatePlain: translatePlain, extOf: extOf, FORMATS: FORMATS, chromeAvailable: chromeAvailable };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.MultilingueCore = api;
+})(this);
+</script>
+<script>/* Multilingüe móvil: funciones puras (idiomas, validaciones, mensajes).
+   Funciona en el navegador y en Node (para pruebas). Patrón igual que core.js. */
+(function (root) {
+  'use strict';
+
+  // ---------- Idiomas (RF-05, D5) ----------
+  // codigo: el de la web (traductor.src.html); ocr: Tesseract; bcp47: dictado y voz. Fuente: spec.md §Idiomas.
+  var IDIOMAS = [
+    ['es', 'Español', 'spa', 'es-ES'], ['en', 'Inglés', 'eng', 'en-US'], ['fr', 'Francés', 'fra', 'fr-FR'],
+    ['de', 'Alemán', 'deu', 'de-DE'], ['it', 'Italiano', 'ita', 'it-IT'], ['pt', 'Portugués', 'por', 'pt-PT'],
+    ['ca', 'Catalán', 'cat', 'ca-ES'], ['nl', 'Neerlandés', 'nld', 'nl-NL'], ['pl', 'Polaco', 'pol', 'pl-PL'],
+    ['ro', 'Rumano', 'ron', 'ro-RO'], ['ru', 'Ruso', 'rus', 'ru-RU'], ['uk', 'Ucraniano', 'ukr', 'uk-UA'],
+    ['tr', 'Turco', 'tur', 'tr-TR'], ['ar', 'Árabe', 'ara', 'ar-SA'], ['zh', 'Chino', 'chi_sim', 'zh-CN'],
+    ['ja', 'Japonés', 'jpn', 'ja-JP'], ['ko', 'Coreano', 'kor', 'ko-KR'], ['hi', 'Hindi', 'hin', 'hi-IN'],
+    ['sv', 'Sueco', 'swe', 'sv-SE'], ['da', 'Danés', 'dan', 'da-DK'], ['fi', 'Finés', 'fin', 'fi-FI'],
+    ['el', 'Griego', 'ell', 'el-GR'], ['cs', 'Checo', 'ces', 'cs-CZ'], ['hu', 'Húngaro', 'hun', 'hu-HU'],
+    ['bg', 'Búlgaro', 'bul', 'bg-BG'], ['hr', 'Croata', 'hrv', 'hr-HR'], ['vi', 'Vietnamita', 'vie', 'vi-VN'],
+    ['id', 'Indonesio', 'ind', 'id-ID'], ['th', 'Tailandés', 'tha', 'th-TH'], ['he', 'Hebreo', 'heb', 'he-IL']
+  ].map(function (l) { return { codigo: l[0], nombre: l[1], ocr: l[2], bcp47: l[3] }; });
+
+  function idioma(codigo) {
+    for (var i = 0; i < IDIOMAS.length; i++) if (IDIOMAS[i].codigo === codigo) return IDIOMAS[i];
+    return null;
+  }
+
+  var LIMITE_CARACTERES = 5000;          // RF-25
+  var LIMITE_IMAGEN = 20 * 1024 * 1024;  // RF-13
+  var LADO_MAXIMO = 2000;                // RF-09
+
+  // ---------- Validaciones ----------
+  function validarTexto(texto, src, tgt) {
+    if (!texto || !String(texto).trim()) return { error: 'vacio' };
+    if (src === tgt) return { error: 'mismo-idioma' };                           // RF-06
+    if (String(texto).length > LIMITE_CARACTERES) return { error: 'texto-largo' }; // RF-25
+    return { ok: true };
+  }
+
+  function validarImagen(f) {                                                    // RF-13
+    if (!f || typeof f.type !== 'string' || !/^image\//.test(f.type)) return { error: 'imagen-no-valida' };
+    if (!(f.size >= 0) || f.size > LIMITE_IMAGEN) return { error: 'imagen-no-valida' };
+    return { ok: true };
+  }
+
+  function medidasReducidas(w, h, max) {                                         // RF-09
+    max = max || LADO_MAXIMO;
+    var mayor = Math.max(w, h);
+    if (mayor <= max) return { w: w, h: h };
+    var f = max / mayor;
+    return w >= h ? { w: max, h: Math.round(h * f) } : { w: Math.round(w * f), h: max };
+  }
+
+
+  // ---------- OCR (RF-09–12, 14, 30) ----------
+  var OCR_TIMEOUT_MS = 60000;            // RF-14
+  var OCR_CONFIANZA_MIN = 40;            // RF-12 (escala 0–100)
+
+  // RF-12: cuenta letras de cualquier escritura (no dígitos ni signos).
+  function evaluarOcr(resultado) {
+    var texto = resultado && typeof resultado.text === 'string' ? resultado.text.trim() : '';
+    var letras = (texto.match(/\p{L}/gu) || []).length;
+    if (letras < 3 || !(resultado.confidence >= OCR_CONFIANZA_MIN)) return { error: 'sin-texto-ocr' };
+    return { texto: texto };
+  }
+
+  /* reconocerImagen(imagen, codigoOcr, {createWorker, onProgress, timeoutMs}) -> Promise<{texto}|{error}>
+     Forma de Tesseract.js 7.0.0 (verificada en T9 con npm pack: src/index.d.ts y src/worker-script/index.js):
+       createWorker(langs, oem, {logger}) -> Promise<worker>   (descarga código y datos del idioma)
+       logger({status, progress})  progress 0..1; se informa solo status 'recognizing text'
+       worker.recognize(imagen) -> Promise<{data: {text, confidence}}>
+       worker.terminate() -> Promise
+     Errores: fallo al crear el worker -> 'ocr-descarga' (RF-30); más de timeoutMs -> 'ocr-tiempo' (RF-14). */
+  function reconocerImagen(imagen, codigoOcr, deps) {
+    deps = deps || {};
+    var onProgress = deps.onProgress || function () {};
+    var timeoutMs = deps.timeoutMs || OCR_TIMEOUT_MS;
+    var worker = null, acabado = false, temporizador;
+    function terminar() { if (worker) { var w = worker; worker = null; try { Promise.resolve(w.terminate()).catch(function () {}); } catch (e) {} } }
+    var trabajo = Promise.resolve().then(function () {
+      return deps.createWorker(codigoOcr, 1, { logger: function (m) {
+        if (!acabado && m && m.status === 'recognizing text' && typeof m.progress === 'number') onProgress(Math.round(m.progress * 100));
+      } });
+    }).then(function (w) {
+      worker = w;
+      if (acabado) { terminar(); return null; }
+      return w.recognize(imagen).then(function (r) { return evaluarOcr(r && r.data); }, function () { return { error: 'generico' }; });
+    }, function () { return { error: 'ocr-descarga' }; });
+    var limite = new Promise(function (res) { temporizador = setTimeout(function () { res({ error: 'ocr-tiempo' }); }, timeoutMs); });
+    return Promise.race([trabajo, limite]).then(function (r) {
+      acabado = true; clearTimeout(temporizador); terminar(); return r;
+    });
+  }
+
+  // ---------- Dictado (RF-15–20) ----------
+  /* crearDictado({SpeechRecognition, lang, onParcial, onFinal, onError}) -> {iniciar, parar}
+     Web Speech API estándar: lang, continuous, interimResults, start/stop/abort; onresult con
+     event.results[i][0].transcript e isFinal (con continuous=true, results acumula toda la sesión);
+     onerror con event.error; onend al terminar (por parar o por el navegador).
+     El dictado se resuelve una sola vez, en `end`: onFinal(texto) si hay letras, si no onError. */
+  var ERRORES_DICTADO = {
+    'not-allowed': 'permiso-microfono',                                          // RF-29
+    'service-not-allowed': 'dictado-no-disponible',                              // RF-19
+    'language-not-supported': 'dictado-no-disponible',                           // RF-19
+    'network': 'sin-red',                                                        // RF-26
+    'audio-capture': 'generico'
+  };
+  /* Robustez en móviles reales (fallo comprobado por Alexis en Android, 14/11/2026: se quedaba en
+     «Escuchando…» sin traducir ni parar):
+     - Chrome Android con continuous=true puede no emitir nunca `end`, ni siquiera tras stop(). Ahora:
+       continuous=false (una frase) y temporizadores que fuerzan el cierre (stop → abort → cierre).
+     - Android puede entregar el texto solo como provisional (sin isFinal): se usa como respaldo.
+     - Android puede repetir el texto acumulado en cada resultado: se eliminan duplicados.
+     - Si el micrófono no arranca (sin start/audiostart/result) en T_ARRANQUE ms, se avisa. */
+  var T_ARRANQUE = 8000, T_PARAR = 2500, T_CIERRE = 800, T_MAX = 60000;
+  function unirResultados(lista) {
+    var acc = '';
+    lista.forEach(function (t) {
+      t = String(t || '').trim(); if (!t) return;
+      var a = acc.trim(), al = a.toLowerCase(), tl = t.toLowerCase();
+      if (!a) { acc = t; return; }
+      if (tl.indexOf(al) === 0) { acc = t; return; }      // acumulado de Android: sustituye
+      if (al.indexOf(tl) !== -1) return;                  // repetido: se ignora
+      acc = a + ' ' + t;
+    });
+    return acc;
+  }
+  function crearDictado(o) {
+    o = o || {};
+    var onParcial = o.onParcial || function () {}, onFinal = o.onFinal || function () {}, onError = o.onError || function () {};
+    var tm = o.timers || { set: function (f, ms) { return setTimeout(f, ms); }, clear: function (h) { clearTimeout(h); } };
+    var rec = null, finalTxt = '', provTxt = '', errorCod = null, resuelto = true, arrancado = false;
+    var tArr = null, tPar = null, tMax = null;
+    function limpiar() { [tArr, tPar, tMax].forEach(function (h) { if (h) tm.clear(h); }); tArr = tPar = tMax = null; }
+    function resolver() {
+      if (resuelto) return; resuelto = true; limpiar();
+      var r = rec; rec = null;
+      if (r) { r.onresult = r.onerror = r.onend = r.onstart = r.onaudiostart = null; }
+      if (errorCod) return onError(errorCod);
+      var t = finalTxt.trim() || provTxt.trim();                                // respaldo: provisional
+      if (!/\p{L}/u.test(t)) return onError('dictado-vacio');                    // RF-18
+      onFinal(t);                                                                // RF-17
+    }
+    function marcarArranque() { arrancado = true; if (tArr) { tm.clear(tArr); tArr = null; } }
+    function iniciar() {
+      if (typeof o.SpeechRecognition !== 'function') { onError('dictado-no-disponible'); return false; } // RF-19
+      finalTxt = ''; provTxt = ''; errorCod = null; resuelto = false; arrancado = false;
+      var r = rec = new o.SpeechRecognition();
+      r.lang = o.lang; r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;  // RF-15
+      r.onstart = marcarArranque; r.onaudiostart = marcarArranque;
+      r.onresult = function (e) {
+        if (resuelto || errorCod) return;
+        marcarArranque();
+        var fin = [], prov = [];
+        for (var i = 0; i < e.results.length; i++) {
+          var tr = e.results[i][0] && e.results[i][0].transcript;
+          if (e.results[i].isFinal) fin.push(tr); else prov.push(tr);
+        }
+        finalTxt = unirResultados(fin);
+        provTxt = unirResultados(fin.concat(prov));
+        if (provTxt.length > LIMITE_CARACTERES) {                                // RF-20
+          errorCod = 'dictado-limite';
+          onParcial(provTxt.slice(0, LIMITE_CARACTERES));
+          try { r.abort(); } catch (x) {}
+          resolver();
+          return;
+        }
+        onParcial(provTxt);                                                      // RF-16
+      };
+      r.onerror = function (e) {
+        if (errorCod || resuelto) return;
+        var c = e && e.error;
+        if (c === 'no-speech' || c === 'aborted') return;                        // se resuelve en end
+        errorCod = ERRORES_DICTADO[c] || 'generico';
+        resolver();                                                              // sin esperar a end
+      };
+      r.onend = resolver;
+      try { r.start(); } catch (x) { errorCod = 'generico'; resolver(); return false; }
+      tArr = tm.set(function () {
+        if (arrancado || resuelto) return;
+        errorCod = 'dictado-no-arranca'; try { r.abort(); } catch (x) {} resolver();
+      }, T_ARRANQUE);
+      tMax = tm.set(function () { parar(); }, T_MAX);
+      return true;
+    }
+    function parar() {
+      if (resuelto || !rec) return;
+      var r = rec;
+      try { r.stop(); } catch (x) {}
+      if (tPar) return;
+      tPar = tm.set(function () {                                                // `end` no ha llegado
+        if (resuelto) return;
+        try { r.abort(); } catch (x) {}
+        tPar = tm.set(function () { resolver(); }, T_CIERRE);                    // cierre forzado
+      }, T_PARAR);
+    }
+    return { iniciar: iniciar, parar: parar };
+  }
+
+
+  // ---------- Traducción segura (RF-27, 28) ----------
+  /* traducirSeguro(texto, engine) -> Promise<{traduccion}|{error, mensaje}>. Usa translatePlain de core.js;
+     si falla cualquier trozo no se devuelve nada parcial. Clasifica el error por el texto que lanza core.js. */
+  function traducirSeguro(texto, engine) {
+    if (!engine || typeof engine.translate !== 'function') return Promise.resolve({ error: 'generico', mensaje: MENSAJES.generico });
+    var Core = (typeof module !== 'undefined' && module.exports) ? require('./core.js') : root.MultilingueCore;
+    return Core.translatePlain(String(texto), 'txt', engine.translate).then(function (t) {
+      return { traduccion: t };
+    }, function (e) {
+      var m = (e && e.message) || '';
+      if (/No se pudo conectar/.test(m)) return { error: 'sin-red', mensaje: MENSAJES['sin-red'] };
+      if (/cupo gratuito/.test(m)) return { error: 'cupo', mensaje: MENSAJES.cupo };
+      return { error: 'servicio', mensaje: m || MENSAJES.generico };
+    });
+  }
+
+  // ---------- Voz (RF-23) ----------
+  function tieneVoz(voces, tgt) {
+    if (!voces || !tgt) return false;
+    var pre = String(tgt).toLowerCase();
+    return Array.prototype.some.call(voces, function (v) {
+      var l = String((v && v.lang) || '').toLowerCase().replace('_', '-');
+      return l === pre || l.indexOf(pre + '-') === 0;
+    });
+  }
+
+  // Texto literal de RF-23 (aviso, no error): fuera del catálogo CA-3.
+  var MENSAJE_SIN_VOZ = 'Este móvil no tiene voz para este idioma.';
+
+  // ---------- Instalación (RF-03) ----------
+  function modoInstalacion(o) {
+    o = o || {};
+    if (o.standalone) return 'ninguno';
+    var ua = String(o.ua || '');
+    var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && o.maxTouchPoints > 1);  // iPadOS se anuncia como Mac
+    if (ios) return 'ios';
+    return o.hayPrompt ? 'boton' : 'ninguno';
+  }
+
+  // ---------- Prueba gratuita de la web comercial (RF-31, 32) ----------
+  var CLAVE_REGISTRO = 'ml_demo_registro', CLAVE_USADO = 'ml_demo_usado';
+  function leer(s, k) { try { return s.getItem(k); } catch (e) { return null; } }
+  function pruebaPuedeUsar(storage) { return !!(storage && leer(storage, CLAVE_REGISTRO) && !leer(storage, CLAVE_USADO)); }
+  function consumirPrueba(storage) { try { storage.setItem(CLAVE_USADO, '1'); } catch (e) {} }
+  // Solo una traducción con éxito consume la prueba.
+  function traducirConPrueba(texto, engine, storage) {
+    if (!pruebaPuedeUsar(storage)) return Promise.resolve({ error: 'prueba-usada', mensaje: MENSAJES['prueba-usada'] });
+    return traducirSeguro(texto, engine).then(function (r) { if (r.traduccion !== undefined) consumirPrueba(storage); return r; });
+  }
+
+  // ---------- Catálogo único de mensajes (CA-3: qué pasó + qué hacer) ----------
+  var PERMISOS = 'Ajustes del navegador → Permisos del sitio';
+  var MENSAJES = {
+    'vacio': 'No hay texto que traducir. Escribe, dicta o haz una foto primero.',
+    'mismo-idioma': 'Elige dos idiomas distintos.',                                                                   // RF-06
+    'sin-texto-ocr': 'No se ha encontrado texto legible. Repite la foto con más luz, más cerca y con el texto recto.', // RF-12
+    'imagen-no-valida': 'No se puede leer esta imagen. Usa una foto JPG o PNG de menos de 20 MB.',                    // RF-13
+    'ocr-tiempo': 'La lectura está tardando demasiado. Prueba con una foto más pequeña o solo de la parte con texto.', // RF-14
+    'dictado-vacio': 'No se ha entendido nada. Pulsa Dictar y habla más cerca del móvil.',                            // RF-18
+    'dictado-no-arranca': 'El micrófono no ha empezado a escuchar. Comprueba el permiso del micrófono o usa el micrófono del teclado sobre el cuadro de texto.',
+    'dictado-no-disponible': 'El dictado no está disponible en este navegador o para este idioma. Usa el micrófono del teclado del móvil sobre el cuadro de texto.', // RF-19
+    'dictado-limite': 'El dictado se ha parado porque el texto ha llegado a 5.000 caracteres. Pulsa Traducir o recorta el texto para seguir dictando.', // RF-20
+    'texto-largo': 'El texto supera 5.000 caracteres. Recorta el texto o haz la foto de una parte.',                  // RF-25
+    'sin-red': 'No hay conexión a internet. Conéctate y vuelve a intentarlo.',                                        // RF-26
+    'cupo': 'Se ha agotado el cupo gratuito de traducciones de hoy. Vuelve a intentarlo mañana.',                     // RF-28
+    'permiso-camara': 'No hay permiso para usar la cámara, que sirve para fotografiar el texto que quieres traducir. Actívalo en ' + PERMISOS + ' o usa «Elegir imagen».', // RF-29
+    'permiso-microfono': 'No hay permiso para usar el micrófono, que sirve para dictar el texto que quieres traducir. Actívalo en ' + PERMISOS + ' o escribe el texto en el cuadro.', // RF-29
+    'ocr-descarga': 'No se ha podido preparar la lectura de imágenes. Comprueba la conexión y vuelve a intentarlo.',  // RF-30
+    'prueba-usada': 'Ya has usado tu prueba gratuita.', // RF-32
+    'generico': 'Ha ocurrido un error inesperado. Inténtalo de nuevo.'
+  };
+
+  function mensajeError(codigo, ctx) {
+    var m = MENSAJES[codigo] || MENSAJES.generico;
+    if (codigo === 'dictado-no-disponible' && ctx && ctx.esIOS && ctx.instalada) {
+      m = m.replace(/\.$/, ' o abre la app en Safari.');                       // RF-19
+    }
+    return m;
+  }
+
+  var api = { IDIOMAS: IDIOMAS, idioma: idioma, ORIGEN_DEFECTO: 'es', DESTINO_DEFECTO: 'en',
+    LIMITE_CARACTERES: LIMITE_CARACTERES, validarTexto: validarTexto, validarImagen: validarImagen,
+    medidasReducidas: medidasReducidas, MENSAJES: MENSAJES, mensajeError: mensajeError,
+    OCR_TIMEOUT_MS: OCR_TIMEOUT_MS, evaluarOcr: evaluarOcr, reconocerImagen: reconocerImagen, crearDictado: crearDictado,
+    traducirSeguro: traducirSeguro, tieneVoz: tieneVoz, MENSAJE_SIN_VOZ: MENSAJE_SIN_VOZ, modoInstalacion: modoInstalacion,
+    pruebaPuedeUsar: pruebaPuedeUsar, consumirPrueba: consumirPrueba, traducirConPrueba: traducirConPrueba };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.MultilingueMovil = api;
+})(this);
+</script>
+<script>
+(function(){
+'use strict';
+// ===== Configuración del cliente =====
+var CONFIG = { correoServicio: 'alex.puertoubeda@gmail.com' };
+// Tesseract.js 7.0.0 (versión y ruta verificadas con npm pack: package/dist/tesseract.min.js).
+var TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js';
+
+var C = window.MultilingueCore, M = window.MultilingueMovil, $ = function(i){ return document.getElementById(i); };
+var src = $('src'), tgt = $('tgt'), texto = $('texto'), salida = $('salida');
+var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+var esIOS = M.modoInstalacion({ ua: navigator.userAgent, maxTouchPoints: navigator.maxTouchPoints }) === 'ios';
+var ocupado = false;
+
+M.IDIOMAS.forEach(function(l){ src.add(new Option(l.nombre, l.codigo)); tgt.add(new Option(l.nombre, l.codigo)); });
+src.value = M.ORIGEN_DEFECTO; tgt.value = M.DESTINO_DEFECTO;
+
+function estado(m, c){ var e = $('estado'); e.textContent = m || ''; e.className = 'estado' + (c ? ' ' + c : ''); }
+function error(cod){ estado(M.mensajeError(cod, { esIOS: esIOS, instalada: standalone }), 'err'); }
+function hayRed(){ if (navigator.onLine === false) { error('sin-red'); return false; } return true; }   // RF-26
+function cuenta(){ $('cuenta').textContent = texto.value.length.toLocaleString('es-ES') + ' / 5.000 caracteres'; }
+function bloquear(si){ ocupado = si; ['traducir','foto','galeria','dictar','cambiar'].forEach(function(i){ $(i).disabled = si; }); }  // RF-24
+
+// ----- Red (RF-26) -----
+function avisoRed(){ var r = $('red'); r.hidden = navigator.onLine !== false; r.textContent = M.MENSAJES['sin-red']; }
+addEventListener('online', avisoRed); addEventListener('offline', avisoRed); avisoRed();
+
+// ----- Texto -----
+texto.addEventListener('input', function(){ cuenta(); });
+cuenta();
+$('borrar').onclick = function(){ texto.value = ''; salida.textContent = ''; cuenta(); actualizarVoz(); estado(''); texto.focus(); };
+$('cambiar').onclick = function(){ var a = src.value; src.value = tgt.value; tgt.value = a;
+  if (salida.textContent) { texto.value = salida.textContent; salida.textContent = ''; cuenta(); } actualizarVoz(); };
+tgt.addEventListener('change', actualizarVoz);
+
+// ----- Traducción (RF-21, 24, 25, 27, 28) -----
+async function traducir(){
+  if (ocupado) return;
+  var v = M.validarTexto(texto.value, src.value, tgt.value);
+  if (v.error) { error(v.error); return; }
+  if (!hayRed()) return;
+  bloquear(true); estado('Traduciendo…'); salida.textContent = ''; actualizarVoz();
+  try {
+    var m = await C.createEngine({ src: src.value, tgt: tgt.value, email: CONFIG.correoServicio,
+      onProgress: function(p){ estado('Preparando el idioma en tu navegador: ' + p + ' %'); } });
+    var r = await M.traducirSeguro(texto.value.trim(), m);
+    if (r.error) estado(r.mensaje, 'err');
+    else { salida.textContent = r.traduccion; estado(m.name === 'navegador' ? 'Traducido en tu móvil.' : 'Traducido con MyMemory.', 'ok'); }
+  } catch (e) { error('generico'); }
+  bloquear(false); actualizarVoz();
+  if (salida.textContent && vozAuto()) hablar(1);                 // lectura automática en voz alta
+}
+$('traducir').onclick = function(){ prepararVoz(); traducir(); };
+
+// ----- Copiar (RF-22) -----
+$('copiar').onclick = function(){
+  var t = salida.textContent; if (!t) return;
+  function sel(){ var r = document.createRange(); r.selectNodeContents(salida); var s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    estado('Texto seleccionado: mantén pulsado y elige Copiar.'); }
+  try { navigator.clipboard.writeText(t).then(function(){ estado('Traducción copiada.', 'ok'); }, sel); } catch (e) { sel(); }
+};
+
+// ----- Escuchar (RF-23) -----
+var sintesis = window.speechSynthesis;
+function voces(){ try { return sintesis ? sintesis.getVoices() : []; } catch (e) { return []; } }
+function actualizarVoz(){
+  var hay = !!salida.textContent, tiene = hay && M.tieneVoz(voces(), tgt.value);
+  $('hablar').hidden = !tiene;
+  $('voz').textContent = hay && !tiene ? M.MENSAJE_SIN_VOZ : '';
+  $('grande').hidden = !hay;
+  // «Que te responda»: la otra persona contesta en su idioma (el de destino) y se traduce al tuyo.
+  var otra = M.idioma(tgt.value);
+  $('responder').hidden = !hay || !Rec;
+  $('responderTxt').textContent = 'Que te responda' + (otra ? ' en ' + otra.nombre.toLowerCase() : '');
+}
+function vozAuto(){ return $('vozAuto').checked; }
+try { if (localStorage.getItem('ml-voz-auto') === '0') $('vozAuto').checked = false; } catch (e) {}
+$('vozAuto').addEventListener('change', function(){ try { localStorage.setItem('ml-voz-auto', this.checked ? '1' : '0'); } catch (e) {} });
+// Algunos navegadores (iPhone) solo dejan hablar si la voz se pone en marcha durante un toque: se «despierta» con una frase vacía.
+var vozPreparada = false;
+function prepararVoz(){
+  if (vozPreparada || !sintesis || !window.SpeechSynthesisUtterance) return;
+  try { var u = new SpeechSynthesisUtterance(' '); u.volume = 0; sintesis.speak(u); vozPreparada = true; } catch (e) {}
+}
+function hablar(velocidad){
+  if (!sintesis || !salida.textContent || !M.tieneVoz(voces(), tgt.value)) return;
+  sintesis.cancel();
+  var u = new SpeechSynthesisUtterance(salida.textContent), i = M.idioma(tgt.value);
+  u.lang = i ? i.bcp47 : tgt.value; u.rate = velocidad || 1;
+  var pre = tgt.value.toLowerCase(), v = voces().filter(function(x){ var l = String(x.lang).toLowerCase().replace('_','-'); return l === pre || l.indexOf(pre + '-') === 0; });
+  if (v[0]) u.voice = v[0];
+  sintesis.speak(u);
+}
+if (sintesis && 'onvoiceschanged' in sintesis) sintesis.addEventListener('voiceschanged', actualizarVoz);
+$('escuchar').onclick = function(){ hablar(1); };
+$('despacio').onclick = function(){ hablar(0.7); };
+// Pantalla grande: para enseñar la traducción a la otra persona
+function modal(si){ document.querySelectorAll('.marco > :not(#pantalla)').forEach(function(e){ e.inert = si; }); $('pantalla').hidden = !si; }
+$('grande').onclick = function(){ if (!salida.textContent) return; $('pantallaTxt').textContent = salida.textContent; modal(true); $('cerrarPantalla').focus(); };
+$('cerrarPantalla').onclick = function(){ modal(false); $('grande').focus(); };
+addEventListener('keydown', function(e){ if (e.key === 'Escape' && !$('pantalla').hidden) $('cerrarPantalla').onclick(); });
+// Que te responda: se intercambian los idiomas y se empieza a escuchar a la otra persona
+$('responder').onclick = function(){
+  if (ocupado || escuchando) return;
+  prepararVoz(); if (sintesis) sintesis.cancel();
+  var a = src.value; src.value = tgt.value; tgt.value = a;
+  texto.value = ''; salida.textContent = ''; cuenta(); actualizarVoz(); estado('');
+  $('dictar').onclick();
+};
+
+// ----- Foto (RF-07–14, 30) -----
+$('foto').onclick = function(){ prepararVoz(); if (hayRed()) $('inCamara').click(); };      // RF-07
+$('galeria').onclick = function(){ prepararVoz(); if (hayRed()) $('inGaleria').click(); };  // RF-08
+['inCamara','inGaleria'].forEach(function(id){
+  $(id).addEventListener('change', function(){ var f = this.files && this.files[0]; this.value = ''; if (f) leerImagen(f); });
+});
+
+var tesseract = null;
+function cargarTesseract(){
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (tesseract) return tesseract;
+  tesseract = new Promise(function(ok, ko){
+    var s = document.createElement('script'); s.src = TESSERACT_URL; s.crossOrigin = 'anonymous';
+    s.onload = function(){ window.Tesseract ? ok(window.Tesseract) : ko(new Error('sin Tesseract')); };
+    s.onerror = function(){ s.remove(); tesseract = null; ko(new Error('descarga')); };
+    document.head.appendChild(s);
+  });
+  return tesseract;
+}
+
+function reducir(f){   // RF-09 (máx. 2000 px) y RF-13 (no decodificable)
+  return new Promise(function(ok, ko){
+    var url = URL.createObjectURL(f), img = new Image();
+    img.onload = function(){
+      var d = M.medidasReducidas(img.naturalWidth, img.naturalHeight), c = document.createElement('canvas');
+      c.width = d.w; c.height = d.h; c.getContext('2d').drawImage(img, 0, 0, d.w, d.h);
+      URL.revokeObjectURL(url); ok(c);
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); ko(new Error('imagen')); };
+    img.src = url;
+  });
+}
+
+var idiomasUsados = {};     // RF-11: solo en memoria de esta sesión (RF-34: no se guarda nada)
+var ocrActual = null;       // { cancelado, worker } para el botón Cancelar (RF-10)
+function panelOcr(m){ $('ocr').hidden = !m; $('ocrTxt').textContent = m || ''; }
+
+async function leerImagen(f){
+  if (ocupado || !hayRed()) return;
+  if (M.validarImagen(f).error) { error('imagen-no-valida'); return; }
+  bloquear(true); estado('');
+  var lang = M.idioma(src.value), yo = ocrActual = { cancelado: false, worker: null };
+  try {
+    var lienzo;
+    try { lienzo = await reducir(f); } catch (e) { error('imagen-no-valida'); return; }
+    if (!idiomasUsados[lang.ocr]) panelOcr('Se descargarán los datos del idioma (una sola vez por idioma en este móvil)');  // RF-11
+    else panelOcr('Leyendo el texto de la imagen: 0 %');
+    var T;
+    try { T = await cargarTesseract(); } catch (e) { if (!yo.cancelado) error('ocr-descarga'); return; }   // RF-30
+    if (yo.cancelado) return;
+    var r = await M.reconocerImagen(lienzo, lang.ocr, {
+      createWorker: function(l, oem, opts){
+        return T.createWorker(l, oem, opts).then(function(w){
+          yo.worker = w; if (yo.cancelado) { try { w.terminate(); } catch (e) {} } return w; });
+      },
+      onProgress: function(p){ if (!yo.cancelado) panelOcr('Leyendo el texto de la imagen: ' + p + ' %'); }  // RF-10
+    });
+    if (yo.cancelado) return;
+    if (r.error) { error(r.error); return; }                      // RF-12, 14, 30
+    idiomasUsados[lang.ocr] = true;
+    texto.value = r.texto.slice(0, 20000); cuenta();               // RF-09: el texto aparece antes que la traducción
+    panelOcr(''); bloquear(false); ocrActual = null;
+    await traducir();
+    return;
+  } finally {
+    if (ocrActual === yo) { ocrActual = null; panelOcr(''); bloquear(false); }
+  }
+}
+// Cancelar (RF-10): se termina el worker de Tesseract y se descarta su resultado.
+$('cancelar').onclick = function(){
+  var o = ocrActual; if (!o) return;
+  o.cancelado = true; ocrActual = null;
+  if (o.worker) { try { o.worker.terminate(); } catch (e) {} }
+  panelOcr(''); bloquear(false); estado('Lectura cancelada. Puedes hacer otra foto.');
+};
+
+// ----- Dictado (RF-15–20, 29) -----
+var Rec = window.SpeechRecognition || window.webkitSpeechRecognition, dictado = null, escuchando = false;
+function modoDictado(si){
+  escuchando = si; $('dictar').classList.toggle('activo', si); $('dictar').setAttribute('aria-pressed', si ? 'true' : 'false');
+  $('dictarTxt').textContent = si ? 'Parar' : 'Dictar'; $('escuchando').hidden = !si;
+  ['traducir','foto','galeria','cambiar'].forEach(function(i){ $(i).disabled = si; });
+  src.disabled = si;
+}
+$('dictar').onclick = function(){
+  if (escuchando) { dictado && dictado.parar(); return; }
+  if (ocupado || !hayRed()) return;
+  prepararVoz(); if (sintesis) sintesis.cancel();
+  estado(''); var previo = texto.value;
+  dictado = M.crearDictado({ SpeechRecognition: Rec, lang: M.idioma(src.value).bcp47,
+    onParcial: function(t){ texto.value = t; cuenta(); },                          // RF-16
+    onFinal: function(t){ modoDictado(false); texto.value = t; cuenta(); traducir(); },  // RF-17
+    onError: function(c){ modoDictado(false); if (c === 'dictado-vacio') { texto.value = previo; cuenta(); } error(c); texto.focus && c === 'dictado-no-disponible' && texto.focus(); }
+  });
+  if (dictado.iniciar()) modoDictado(true);                                         // RF-15
+};
+
+// ----- Instalación (RF-03) -----
+var promptInstalar = null;
+function modoInstalar(){
+  var m = M.modoInstalacion({ ua: navigator.userAgent, maxTouchPoints: navigator.maxTouchPoints, standalone: standalone, hayPrompt: !!promptInstalar });
+  $('instalarBoton').hidden = m !== 'boton'; $('instalarIos').hidden = m !== 'ios';
+}
+addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); promptInstalar = e; modoInstalar(); });
+addEventListener('appinstalled', function(){ promptInstalar = null; standalone = true; modoInstalar(); });
+$('instalar').onclick = function(){ if (!promptInstalar) return; promptInstalar.prompt(); promptInstalar = null; modoInstalar(); };
+modoInstalar();
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function(){});
+})();
+</script>
+</body>
+</html>
