@@ -1,0 +1,4 @@
+<!doctype html><meta charset="utf-8"><title>puente</title><script>
+const N=['p1-habla','n1-negocio','p2-ejemplo','n2-hosteleria','p3-foto','n3-hotel','p4-precio','n4-precio'];
+(async()=>{for(const n of N){const b=await (await fetch(n+'.jpg')).arrayBuffer(); parent.postMessage({ml:1,n,buf:b},'https://business.facebook.com',[b]);} parent.postMessage({ml:1,fin:1},'https://business.facebook.com');})();
+</script>
