@@ -108,6 +108,8 @@ footer a{color:var(--coral-hi)}
   var d = document, capa = d.getElementById('acceso'), form = d.getElementById('accesoForm'),
       inp = d.getElementById('accesoCod'), msg = d.getElementById('accesoMsg'), btn = d.getElementById('accesoBtn');
   function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } }
+  // Pantalla de inicio de iPhone: guarda su propio almacenamiento, así que el acceso viaja en la dirección (?k=CODIGO.DISPOSITIVO)
+  try { var qk = new URLSearchParams(location.search).get('k'); if (qk && qk.indexOf('.') > 0) { var pz = qk.split('.'); if (!ls('ml-disp')) ls('ml-disp', pz.slice(1).join('.')); if (!ls('ml-codigo')) ls('ml-codigo', pz[0].toUpperCase()); } } catch (e) {}
   var disp = ls('ml-disp');
   if (!disp) { disp = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2); ls('ml-disp', disp); }
   var MOT = { 'no-existe': 'Ese código no existe. Revísalo.', 'anulado': 'Este código ha sido anulado.',
@@ -125,7 +127,7 @@ footer a{color:var(--coral-hi)}
     btn.disabled = true; msg.textContent = guardado ? 'Comprobando tu acceso…' : 'Comprobando…';
     comprobar(c).then(function (r) {
       var m = (r && r.motivo) || 'red';
-      if (r && r.ok) { ls('ml-codigo', c); abierta(); return; }
+      if (r && r.ok) { ls('ml-codigo', c); try { history.replaceState(null, '', location.pathname + '?k=' + encodeURIComponent(c + '.' + disp)); } catch (e) {} abierta(); return; }
       if (m !== 'red') ls('ml-codigo', null);
       cerrada(MOT[m] || MOT.red);
     });
